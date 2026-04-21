@@ -1,0 +1,144 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: psc-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: photo_classifier
+      POSTGRES_USER: psc_user
+      POSTGRES_PASSWORD: psc_password
+    ports:
+      - "55432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U psc_user -d photo_classifier"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - psc-network
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: psc-rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: psc_user
+      RABBITMQ_DEFAULT_PASS: psc_password
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - psc-network
+
+  minio:
+    image: minio/minio:latest
+    container_name: psc-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: psc_admin
+      MINIO_ROOT_PASSWORD: psc_admin_password
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - psc-network
+
+  minio-init:
+    image: minio/mc:latest
+    container_name: psc-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 psc_admin psc_admin_password;
+      mc mb --ignore-existing local/photos;
+      mc anonymous set download local/photos;
+      exit 0;
+      "
+    networks:
+      - psc-network
+
+  backend:
+    build: ./backend
+    container_name: psc-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: photo_classifier
+      POSTGRES_USER: psc_user
+      POSTGRES_PASSWORD: psc_password
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: psc_user
+      RABBITMQ_PASSWORD: psc_password
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_PUBLIC_ENDPOINT: http://localhost:9000
+      MINIO_ROOT_USER: psc_admin
+      MINIO_ROOT_PASSWORD: psc_admin_password
+      MINIO_BUCKET: photos
+      JWT_SECRET: change-me-in-prod-this-is-a-demo-secret-key-at-least-32-bytes-long
+    ports:
+      - "8080:8080"
+    networks:
+      - psc-network
+
+  ml-service:
+    build: ./ml-service
+    container_name: psc-ml
+    restart: unless-stopped
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment:
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: psc_user
+      RABBITMQ_PASSWORD: psc_password
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: psc_admin
+      MINIO_SECRET_KEY: psc_admin_password
+      MINIO_BUCKET: photos
+      MODEL_WEIGHTS_PATH: /app/weights/efficientnet_b0_styles.pth
+    volumes:
+      - ./ml-service/weights:/app/weights
+    ports:
+      - "8000:8000"
+    networks:
+      - psc-network
+
+volumes:
+  postgres_data:
+  rabbitmq_data:
+  minio_data:
+
+networks:
+  psc-network:
+    driver: bridge

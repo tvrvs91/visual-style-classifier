@@ -1,0 +1,66 @@
+server:
+  port: 8080
+  servlet:
+    context-path: /
+
+spring:
+  application:
+    name: photo-style-classifier
+
+  datasource:
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:photo_classifier}
+    username: ${POSTGRES_USER:psc_user}
+    password: ${POSTGRES_PASSWORD:psc_password}
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+    open-in-view: false
+
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    locations: classpath:db/migration
+
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:psc_user}
+    password: ${RABBITMQ_PASSWORD:psc_password}
+    listener:
+      simple:
+        acknowledge-mode: auto
+        prefetch: 5
+
+  servlet:
+    multipart:
+      max-file-size: 25MB
+      max-request-size: 25MB
+
+app:
+  jwt:
+    secret: ${JWT_SECRET:change-me-in-prod-this-is-a-demo-secret-key-at-least-32-bytes-long}
+    expiration-ms: 86400000
+
+  minio:
+    endpoint: ${MINIO_ENDPOINT:http://localhost:9000}
+    access-key: ${MINIO_ROOT_USER:psc_admin}
+    secret-key: ${MINIO_ROOT_PASSWORD:psc_admin_password}
+    bucket: ${MINIO_BUCKET:photos}
+    public-endpoint: ${MINIO_PUBLIC_ENDPOINT:http://localhost:9000}
+
+  rabbitmq:
+    classification-queue: classification.tasks
+    result-queue: classification.results
+    exchange: classification.exchange
+    task-routing-key: classification.task
+    result-routing-key: classification.result
+
+logging:
+  level:
+    com.diploma.psc: DEBUG
+    org.springframework.security: INFO

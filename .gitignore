@@ -1,0 +1,49 @@
+# Environment
+.env
+.env.local
+
+# Local agent/editor settings
+.claude/
+
+# Java / Maven
+target/
+*.class
+*.jar
+*.war
+.mvn/
+!.mvn/wrapper/maven-wrapper.jar
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.settings/
+.project
+.classpath
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Node / React
+node_modules/
+build/
+dist/
+.cache/
+
+# ML models
+*.pth
+*.pt
+*.onnx
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
