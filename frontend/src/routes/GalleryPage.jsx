@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { photoApi, styleApi } from '../api.js'
-import PhotoCell from '../components/PhotoCell.jsx'
+import PhotoCell, { cellClass } from '../components/PhotoCell.jsx'
 import PhotoModal from '../components/PhotoModal.jsx'
+import { useToast } from '../ToastContext.jsx'
 
 export default function GalleryPage() {
+  const toast = useToast()
   const [photos, setPhotos] = useState([])
   const [styles, setStyles] = useState([])
   const [filterStyle, setFilterStyle] = useState('')
@@ -17,8 +19,11 @@ export default function GalleryPage() {
       await photoApi.delete(photo.id)
       setPhotos((prev) => prev.filter((p) => p.id !== photo.id))
       setActive((curr) => (curr?.id === photo.id ? null : curr))
-    } catch { /* axios interceptor */ }
-  }, [])
+      toast.success('Photo deleted')
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Delete failed')
+    }
+  }, [toast])
 
   useEffect(() => {
     styleApi.list()
@@ -86,7 +91,11 @@ export default function GalleryPage() {
 
       <div className="gallery">
         {loading ? (
-          <div className="loading">Loading</div>
+          <div className="gallery-grid">
+            {Array.from({ length: 18 }).map((_, i) => (
+              <div key={i} className={`cell skeleton ${cellClass(i)}`} />
+            ))}
+          </div>
         ) : photos.length === 0 ? (
           <div className="empty">No photos yet</div>
         ) : (
