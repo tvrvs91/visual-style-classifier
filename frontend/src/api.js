@@ -36,8 +36,19 @@ export const photoApi = {
     fd.append('file', file)
     return api.post('/photos', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
   },
+  uploadWithProgress: (file, onProgress) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    return api.post('/photos', fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      onUploadProgress: (e) => {
+        if (e.total && onProgress) onProgress(Math.round((e.loaded / e.total) * 100))
+      },
+    })
+  },
   list: (page = 0, size = 20) => api.get('/photos', { params: { page, size } }),
   get: (id) => api.get(`/photos/${id}`),
+  delete: (id) => api.delete(`/photos/${id}`),
   search: (style, minConfidence = 0.2, page = 0, size = 20) =>
     api.get('/photos/search', { params: { style, minConfidence, page, size } }),
 }

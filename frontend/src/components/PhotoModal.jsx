@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { photoApi } from '../api.js'
 
-export default function PhotoModal({ photo, onClose, onOpenPhoto }) {
+export default function PhotoModal({ photo, onClose, onOpenPhoto, onDelete }) {
   const [similar, setSimilar] = useState([])
   const [similarLoading, setSimilarLoading] = useState(false)
 
@@ -39,6 +39,16 @@ export default function PhotoModal({ photo, onClose, onOpenPhoto }) {
       <div className="modal">
         <div className="modal-image">
           <button className="modal-close" onClick={onClose} aria-label="Close">✕</button>
+          {onDelete && (
+            <button
+              className="modal-delete"
+              onClick={() => {
+                if (window.confirm('Delete this photo?')) onDelete(photo)
+              }}
+            >
+              Delete
+            </button>
+          )}
           {photo.url && <img src={photo.url} alt="" />}
         </div>
         <div className="modal-panel">

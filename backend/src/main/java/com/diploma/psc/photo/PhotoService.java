@@ -54,6 +54,17 @@ public class PhotoService {
         return toResponse(photo);
     }
 
+    @Transactional
+    public void delete(Long id, AuthUser principal) {
+        Photo photo = photoRepository.findByIdAndUserId(id, principal.getUserId())
+                .orElseThrow(() -> new IllegalArgumentException("Photo not found"));
+        String key = photo.getS3Key();
+        photoRepository.delete(photo);
+        // MinIO удаляется после успешного коммита транзакции; если упадёт — сирота в S3,
+        // но запись в БД уже не вернёт её клиенту (можно подчистить сборщиком мусора).
+        minioService.delete(key);
+    }
+
     @Transactional(readOnly = true)
     public PhotoResponse get(Long id, AuthUser principal) {
         Photo photo = photoRepository.findByIdAndUserId(id, principal.getUserId())

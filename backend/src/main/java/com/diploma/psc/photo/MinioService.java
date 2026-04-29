@@ -63,6 +63,19 @@ public class MinioService {
         }
     }
 
+    public void delete(String key) {
+        try {
+            minioClient.removeObject(
+                    RemoveObjectArgs.builder()
+                            .bucket(bucket)
+                            .object(key)
+                            .build()
+            );
+        } catch (Exception e) {
+            log.warn("Failed to delete object {} from MinIO: {}", key, e.getMessage());
+        }
+    }
+
     public String presignedGetUrl(String key) {
         try {
             return minioPresignClient.getPresignedObjectUrl(

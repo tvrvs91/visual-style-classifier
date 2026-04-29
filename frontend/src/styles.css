@@ -169,6 +169,35 @@ input, select { font-family: inherit; }
   background: rgba(0,0,0,0.35);
 }
 
+.cell-delete {
+  position: absolute;
+  top: 6px; left: 6px;
+  width: 22px; height: 22px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px; line-height: 1;
+  color: #fff;
+  background: rgba(0,0,0,0.55);
+  border: 0.5px solid transparent;
+  opacity: 0;
+  transition: opacity 200ms ease, color 200ms ease, border-color 200ms ease;
+  z-index: 3;
+}
+.cell:hover .cell-delete { opacity: 1; }
+.cell-delete:hover { color: var(--accent); border-color: var(--accent); }
+
+.modal-delete {
+  position: absolute;
+  top: 10px; left: 10px;
+  padding: 4px 10px;
+  font-size: 9px; text-transform: uppercase; letter-spacing: 0.25em;
+  color: var(--text-dim);
+  background: rgba(0,0,0,0.5);
+  border: 0.5px solid var(--border-faint);
+  z-index: 3;
+  transition: color 200ms ease, border-color 200ms ease;
+}
+.modal-delete:hover { color: var(--accent); border-color: var(--accent); }
+
 .status-dot {
   position: absolute; top: 8px; right: 8px;
   width: 6px; height: 6px;
@@ -401,7 +430,55 @@ input, select { font-family: inherit; }
   font-size: 10px; letter-spacing: 0.1em;
   color: var(--text-dimmer); margin-top: 6px;
 }
-.upload-actions { display: flex; gap: 8px; }
+.upload-list {
+  margin-top: 16px;
+  display: flex; flex-direction: column;
+  border-top: 0.5px solid var(--border-faint);
+}
+.upload-row {
+  display: grid;
+  grid-template-columns: 1fr 70px 120px 70px 22px;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 0.5px solid var(--border-faint);
+  font-size: 11px;
+}
+.upload-row-name {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--text);
+}
+.upload-row-size { color: var(--text-dimmer); font-variant-numeric: tabular-nums; text-align: right; }
+.upload-row-bar {
+  position: relative;
+  height: 2px; background: #1c1c1c;
+  overflow: hidden;
+}
+.upload-row-fill {
+  position: absolute; left: 0; top: 0; bottom: 0;
+  background: var(--text-dim);
+  transition: width 200ms linear;
+}
+.upload-row.done .upload-row-fill   { background: var(--ok); }
+.upload-row.error .upload-row-fill  { background: var(--accent); }
+.upload-row-status {
+  font-size: 9px; text-transform: uppercase; letter-spacing: 0.18em;
+  color: var(--text-dimmer);
+  text-align: right;
+}
+.upload-row.uploading .upload-row-status { color: var(--text-dim); }
+.upload-row.done .upload-row-status      { color: var(--ok); }
+.upload-row.error .upload-row-status     { color: var(--accent); }
+.upload-row-remove {
+  width: 22px; height: 22px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px; color: var(--text-dimmer);
+  border: 0.5px solid transparent;
+  transition: color 200ms ease, border-color 200ms ease;
+}
+.upload-row-remove:hover { color: var(--accent); border-color: var(--accent); }
+
+.upload-actions { display: flex; gap: 8px; align-items: center; }
 .btn {
   padding: 10px 16px;
   background: transparent;

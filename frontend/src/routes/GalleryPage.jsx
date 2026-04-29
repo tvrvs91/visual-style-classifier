@@ -12,6 +12,14 @@ export default function GalleryPage() {
   const [active, setActive] = useState(null)
   const pollRef = useRef(null)
 
+  const handleDelete = useCallback(async (photo) => {
+    try {
+      await photoApi.delete(photo.id)
+      setPhotos((prev) => prev.filter((p) => p.id !== photo.id))
+      setActive((curr) => (curr?.id === photo.id ? null : curr))
+    } catch { /* axios interceptor */ }
+  }, [])
+
   useEffect(() => {
     styleApi.list()
       .then(({ data }) => setStyles(data))
@@ -84,7 +92,13 @@ export default function GalleryPage() {
         ) : (
           <div className="gallery-grid">
             {photos.map((p, i) => (
-              <PhotoCell key={p.id} photo={p} index={i} onClick={setActive} />
+              <PhotoCell
+                key={p.id}
+                photo={p}
+                index={i}
+                onClick={setActive}
+                onDelete={handleDelete}
+              />
             ))}
           </div>
         )}
@@ -95,6 +109,7 @@ export default function GalleryPage() {
           photo={active}
           onClose={() => setActive(null)}
           onOpenPhoto={setActive}
+          onDelete={handleDelete}
         />
       )}
     </>

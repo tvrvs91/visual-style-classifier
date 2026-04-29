@@ -28,6 +28,13 @@ public class PhotoController {
         return ResponseEntity.ok(photoService.get(id, principal));
     }
 
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> delete(@PathVariable Long id,
+                                       @AuthenticationPrincipal AuthUser principal) {
+        photoService.delete(id, principal);
+        return ResponseEntity.noContent().build();
+    }
+
     @GetMapping
     public ResponseEntity<Page<PhotoResponse>> list(@AuthenticationPrincipal AuthUser principal,
                                                     @RequestParam(defaultValue = "0") int page,
