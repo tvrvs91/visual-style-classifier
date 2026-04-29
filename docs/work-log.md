@@ -131,3 +131,41 @@ README переработан в формат, ожидаемый от open-sour
 Markdown рендерится в GitHub корректно (бейджи кликабельны, ASCII-схема в `<pre>`-блоке, таблицы выровнены).
 
 ---
+
+## M5. Интеграционные тесты с Testcontainers
+
+**Что сделано.**
+Добавлен базовый класс `IntegrationTestBase` со статическим singleton-ом из трёх контейнеров (PostgreSQL, RabbitMQ, MinIO), стартующих один раз на весь test-run. Через `@DynamicPropertySource` адреса контейнеров подставляются в Spring-конфигурацию вместо production-настроек. Между тестами `@AfterEach` чистит данные из БД (контейнеры остаются живыми).
+
+**Покрытие.**
+1. `AuthFlowTest` (4 теста, реальный HTTP):
+   - регистрация → логин → получение JWT;
+   - дубликат email → 409;
+   - неверный пароль → 401;
+   - доступ к защищённому эндпоинту без JWT → 401/403.
+2. `ClassificationConsumerTest` (2 теста):
+   - публикуется result с `status=OK` → photo переходит в `DONE`, в БД появляются 2 связи photo↔style с правильными FK;
+   - публикуется result с `status=ERROR` → photo переходит в `FAILED`, связи отсутствуют.
+3. `JwtServiceTest` (5 unit-тестов из M3) — тоже в составе.
+
+Итого **11 тестов, 100% зелёные** на CPU за ~95 секунд (включая старт контейнеров).
+
+**Архитектурные решения.**
+1. **Singleton-контейнеры через статический блок.** Ускоряет прогон в 5–10 раз: контейнер Postgres стартует ~3 секунды, MinIO — ~5, RabbitMQ — ~10. Перезапуск на каждый тестовый класс был бы катастрофой.
+2. **Очистка данных через репозитории, а не через truncate.** `@AfterEach` вызывает `deleteAll()` в правильном порядке (photoStyles → photos → users) — JPA и cascading FK работают корректно. Альтернатива (Flyway clean / TRUNCATE) разрушает таблицу `styles` со словарными данными, что мешает другим тестам.
+3. **Решение проблемы LazyInitializationException.** При `@ManyToOne(fetch=LAZY)` обращение к `ps.getStyle().getName()` вне транзакции бросает исключение — Hibernate-сессия закрыта. Fix: ассерт против `ps.getId().getStyleId()` (FK из embedded id, известен без обращения к прокси), а имена-эталоны достаются упреждающим запросом `styleRepository.findByName()`. Это правильный паттерн для проверки реляций в тестах без `@Transactional` на методе.
+4. **TESTCONTAINERS_HOST_OVERRIDE=host.docker.internal** для запуска тестов внутри docker-контейнера maven (DinD-сценарий). Без этого Testcontainers пытается соединиться по `localhost` внутри maven-контейнера, что не работает.
+
+**Файлы.**
+- `backend/pom.xml` — добавлены `testcontainers-junit-jupiter`, `testcontainers-postgresql`, `testcontainers-rabbitmq`, `testcontainers-minio`.
+- `backend/src/test/java/com/diploma/psc/IntegrationTestBase.java`.
+- `backend/src/test/java/com/diploma/psc/auth/AuthFlowTest.java`.
+- `backend/src/test/java/com/diploma/psc/classification/ClassificationConsumerTest.java`.
+
+**Проверка.**
+```
+[INFO] Tests run: 11, Failures: 0, Errors: 0, Skipped: 0
+[INFO] BUILD SUCCESS
+```
+
+---
