@@ -276,6 +276,24 @@ GET /api/stats/me →
 
 ---
 
+## M10. Bugfix: 403 → 401 на отсутствующий/невалидный JWT
+
+**Тезисы.**
+- Симптом: пользователь с просроченным JWT в localStorage делает upload → все файлы мгновенно «FAILED», без редиректа на /login.
+- Причина: Spring Security без явного `AuthenticationEntryPoint` отдавал **403** на запросы без аутентификации; axios-interceptor на фронте редиректил только на **401**. 403 пробрасывался как обычная ошибка → UI ставил FAILED.
+- Фикс backend: `exceptionHandling.authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED))` — стандартное поведение для stateless JWT API.
+- Фикс frontend: interceptor теперь редиректит и на 401, и на 403 (для нашего API сейчас семантика одинаковая, поскольку нет ролевой модели).
+
+**Файлы.** `backend/.../config/SecurityConfig.java`, `frontend/src/api.js`.
+
+**Проверка.**
+```
+GET /api/photos без заголовка → 401 (было 403)
+GET /api/photos с мусорным токеном → 401 (было 403)
+```
+
+---
+
 ## Сводная карта сделанного (для разворачивания в отчёт)
 
 | Milestone | Что | Коммит |

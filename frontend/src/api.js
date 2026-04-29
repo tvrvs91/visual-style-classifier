@@ -13,7 +13,10 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (r) => r,
   (err) => {
-    if (err.response?.status === 401) {
+    const status = err.response?.status
+    // 401 — нет/невалидный токен, 403 — токен валиден, но прав нет (для нашего API
+    // на практике означает то же самое, поскольку других ролей пока не вводили)
+    if (status === 401 || status === 403) {
       localStorage.removeItem('token')
       localStorage.removeItem('email')
       if (!window.location.pathname.startsWith('/login') &&
