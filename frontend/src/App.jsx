@@ -4,6 +4,7 @@ import LoginPage from './routes/LoginPage.jsx'
 import RegisterPage from './routes/RegisterPage.jsx'
 import GalleryPage from './routes/GalleryPage.jsx'
 import UploadPage from './routes/UploadPage.jsx'
+import ProfilePage from './routes/ProfilePage.jsx'
 
 function NavBar() {
   const { isAuthed, email, logout } = useAuth()
@@ -21,6 +22,7 @@ function NavBar() {
           <>
             <NavLink to="/" end className={({ isActive }) => isActive ? 'active' : ''}>Gallery</NavLink>
             <NavLink to="/upload" className={({ isActive }) => isActive ? 'active' : ''}>Upload</NavLink>
+            <NavLink to="/profile" className={({ isActive }) => isActive ? 'active' : ''}>Profile</NavLink>
             <span className="email">{email}</span>
             <button className="logout" onClick={onLogout}>Logout</button>
           </>
@@ -49,6 +51,7 @@ export default function App() {
         <Route path="/register" element={<RegisterPage />} />
         <Route path="/" element={<RequireAuth><GalleryPage /></RequireAuth>} />
         <Route path="/upload" element={<RequireAuth><UploadPage /></RequireAuth>} />
+        <Route path="/profile" element={<RequireAuth><ProfilePage /></RequireAuth>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </>

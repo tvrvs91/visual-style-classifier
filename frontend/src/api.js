@@ -56,3 +56,7 @@ export const photoApi = {
 export const styleApi = {
   list: () => api.get('/styles'),
 }
+
+export const statsApi = {
+  me: () => api.get('/stats/me'),
+}
