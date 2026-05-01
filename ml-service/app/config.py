@@ -20,18 +20,23 @@ class Settings(BaseSettings):
     minio_secret_key: str = "psc_admin_password"
     minio_bucket: str = "photos"
 
+    # Каноничный путь, по которому ML-сервис ищет дообученные веса.
+    # Если его нет — пробуются альтернативные имена (см. classifier._resolve_weights_path).
     model_weights_path: str = "/app/weights/efficientnet_b0_styles.pth"
+    weights_dir: str = "/app/weights"
     top_k: int = 3
 
+    # Классы в АЛФАВИТНОМ порядке — индексы здесь должны совпадать с порядком,
+    # в котором тренировалась голова модели (state_dict выходного Linear).
     styles: list[str] = [
-        "moody",
-        "minimalist",
-        "street",
-        "golden_hour",
-        "dark",
         "airy",
-        "vintage",
+        "dark",
         "dramatic",
+        "golden_hour",
+        "minimalist",
+        "moody",
+        "street",
+        "vintage",
     ]
 
 

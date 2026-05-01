@@ -56,7 +56,10 @@ worker = RabbitMQWorker(handle_task)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     worker.start()
-    log.info("ML service started (heuristic mode: %s)", classifier.use_heuristic)
+    if classifier.use_heuristic:
+        log.warning("Fallback: heuristic mode")
+    else:
+        log.info("Model loaded: EfficientNet-B0 (weights: %s)", classifier.weights_path)
     yield
     worker.stop()
 
@@ -69,7 +72,7 @@ def health():
     return {
         "status": "ok",
         "heuristic_mode": classifier.use_heuristic,
-        "styles": classifier.styles,
+        **classifier.info(),
     }
 
 

@@ -40,6 +40,10 @@ dist/
 *.pt
 *.onnx
 
+# Trained model weights — large binaries kept local only
+ml-service/weights/*
+!ml-service/weights/.gitkeep
+
 # OS
 .DS_Store
 Thumbs.db

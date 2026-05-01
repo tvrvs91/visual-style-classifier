@@ -294,6 +294,48 @@ GET /api/photos с мусорным токеном → 401 (было 403)
 
 ---
 
+## M11. Подключение настоящей модели EfficientNet-B0
+
+**Тезисы.**
+- Получен файл дообученной модели `efficientnet_b0_styles_best.pth` (16 MB, state_dict с головой `Linear(1280, 8)`), положен в `ml-service/weights/`.
+- В `.gitignore` добавлен `ml-service/weights/*` (с `!.gitkeep`-исключением) — большие бинарные веса остаются локальными, в репо не утекают.
+- Классы переведены в **алфавитный порядок** (`airy, dark, dramatic, golden_hour, minimalist, moody, street, vintage`) — это порядок, в котором обучалась голова, и индекс выхода модели должен с ним совпадать.
+- Препроцессинг: жёсткий resize 224×224 (без CenterCrop), нормализация ImageNet — соответствует training-pipeline'у в Colab.
+- Поиск весов: пробуется каноничный путь → потом любой `*.pth` с приоритетом имён `efficientnet_b0_styles*` → fallback на эвристику. Это позволяет тренировочному скрипту класть файл с любым стандартным суффиксом (`_best`, `_final`, `_epochN`).
+- Поддержка форматов сохранения: чистый state_dict, словарь с ключом `state_dict` (PyTorch Lightning) и весь `nn.Module`.
+- `/health` теперь возвращает `model`, `weights_path`, `device`, `styles`, `top_k` — годится как способ проверки на демо.
+
+**Стартовые логи** (для дипломной защиты — показать в скриншоте логов):
+```
+Model loaded: EfficientNet-B0 (weights from /app/weights/efficientnet_b0_styles_best.pth)
+```
+или, если веса не найдены:
+```
+Fallback: heuristic mode
+```
+
+**Файлы.**
+- `.gitignore`
+- `ml-service/app/config.py` — алфавитный порядок styles, добавлен `weights_dir`
+- `ml-service/app/classifier.py` — `_resolve_weights_path()`, новый transform, `info()`-метод
+- `ml-service/app/main.py` — стартовый лог по факту загрузки, расширенный `/health`
+
+**Проверка.**
+1. `GET /health` →
+   ```json
+   {"status":"ok","heuristic_mode":false,"model":"efficientnet_b0",
+    "weights_path":"/app/weights/efficientnet_b0_styles_best.pth",
+    "device":"cpu","styles":["airy","dark",...],"top_k":3}
+   ```
+2. End-to-end: upload фото → через ~2 сек статус `DONE`, теги от настоящей модели:
+   ```json
+   "styles":[{"name":"street","confidence":0.379},
+             {"name":"vintage","confidence":0.184},
+             {"name":"minimalist","confidence":0.145}]
+   ```
+
+---
+
 ## Сводная карта сделанного (для разворачивания в отчёт)
 
 | Milestone | Что | Коммит |
@@ -308,4 +350,6 @@ GET /api/photos с мусорным токеном → 401 (было 403)
 | M7 | Profile page + `/api/stats/me` | следующий коммит |
 | M8 | UML-диаграммы Mermaid в `docs/diagrams.md` | следующий коммит |
 | M9 | OWASP-разбор (тезисы в этом файле) | будущая работа |
+| M10 | 401 вместо 403 на отсутствующий JWT | `9c87854` |
+| M11 | Подключение настоящего EfficientNet-B0 | следующий коммит |
 
