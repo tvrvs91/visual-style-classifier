@@ -26,6 +26,12 @@ class Settings(BaseSettings):
     weights_dir: str = "/app/weights"
     top_k: int = 3
 
+    # Test-time augmentation: усреднение softmax по N аугментациям одного кадра.
+    # Стабильно даёт +1–2 пп точности ценой ~×N времени инференса.
+    # 1 = выкл, 4 = типичное значение (orig + hflip + 2 random crops).
+    use_tta: bool = False
+    tta_passes: int = 4
+
     # Классы в АЛФАВИТНОМ порядке — индексы здесь должны совпадать с порядком,
     # в котором тренировалась голова модели (state_dict выходного Linear).
     styles: list[str] = [

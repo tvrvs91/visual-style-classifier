@@ -54,6 +54,16 @@ class StyleClassifier:
                                  std=[0.229, 0.224, 0.225]),
         ])
 
+        # TTA-трансформ: чуть больший resize + случайный crop, чтобы получать
+        # разные «взгляды» на изображение и усреднять предсказания.
+        self.tta_transform = transforms.Compose([
+            transforms.Resize((256, 256)),
+            transforms.RandomCrop(224),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                 std=[0.229, 0.224, 0.225]),
+        ])
+
     def _build_model(self) -> None:
         model = efficientnet_b0(weights=None)
         in_features = model.classifier[1].in_features  # 1280
@@ -119,10 +129,27 @@ class StyleClassifier:
 
     def _nn_scores(self, img: Image.Image) -> List[float]:
         with torch.no_grad():
+            if settings.use_tta and settings.tta_passes > 1:
+                return self._nn_scores_tta(img)
             x = self.transform(img).unsqueeze(0).to(self.device)
             logits = self.model(x)
             probs = torch.softmax(logits, dim=1).squeeze(0).cpu().numpy()
         return [float(p) for p in probs]
+
+    def _nn_scores_tta(self, img: Image.Image) -> List[float]:
+        """Усреднение softmax по N кропам + горизонтальный флип."""
+        passes = []
+        # Базовый прогон + hflip
+        x = self.transform(img).unsqueeze(0).to(self.device)
+        passes.append(torch.softmax(self.model(x), dim=1))
+        x_flip = torch.flip(x, dims=[3])
+        passes.append(torch.softmax(self.model(x_flip), dim=1))
+        # Случайные кропы
+        for _ in range(max(0, settings.tta_passes - 2)):
+            x_aug = self.tta_transform(img).unsqueeze(0).to(self.device)
+            passes.append(torch.softmax(self.model(x_aug), dim=1))
+        avg = torch.stack(passes).mean(dim=0).squeeze(0).cpu().numpy()
+        return [float(p) for p in avg]
 
     def _heuristic_scores(self, img: Image.Image) -> List[float]:
         """Hand-crafted scoring — fallback, когда нет fine-tuned весов."""
@@ -162,4 +189,6 @@ class StyleClassifier:
             "device": str(self.device),
             "styles": self.styles,
             "top_k": settings.top_k,
+            "tta": settings.use_tta and settings.tta_passes > 1,
+            "tta_passes": settings.tta_passes if settings.use_tta else 1,
         }
