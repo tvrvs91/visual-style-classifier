@@ -68,7 +68,8 @@ def main():
 
     classes = sorted(set(train) | set(val))
     print(f"\nКлассы ({len(classes)}): {classes}")
-    print(f"class_to_idx (алфавитный): {{{', '.join(f\"{c!r}: {i}\" for i, c in enumerate(classes))}}}")
+    mapping = ", ".join(f"{c!r}: {i}" for i, c in enumerate(classes))
+    print(f"class_to_idx (алфавитный): {{{mapping}}}")
 
     print("\n=== Распределение по классам ===")
     print(f"{'class':<14} {'train':>7} {'val':>7} {'tot':>7}  {'tr/val':>8}")
