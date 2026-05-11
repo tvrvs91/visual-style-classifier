@@ -28,6 +28,30 @@ public interface PhotoRepository extends JpaRepository<Photo, Long> {
                               @Param("minConfidence") double minConfidence,
                               Pageable pageable);
 
+    /**
+     * Поиск фото пользователя по цветовой семье в палитре. color_tags
+     * хранится как JSON-массив строк ["red", "blue", ...]; поиск через
+     * LIKE по подстроке `"family"` достаточно точный (кавычки исключают
+     * частичные совпадения вроде "purple" по запросу "purp").
+     */
+    @Query(value = """
+           SELECT p.* FROM photos p
+             JOIN photo_features pf ON pf.photo_id = p.id
+           WHERE p.user_id = :userId
+             AND pf.color_tags LIKE CONCAT('%"', :color, '"%')
+           ORDER BY p.uploaded_at DESC
+           """,
+           countQuery = """
+           SELECT COUNT(*) FROM photos p
+             JOIN photo_features pf ON pf.photo_id = p.id
+           WHERE p.user_id = :userId
+             AND pf.color_tags LIKE CONCAT('%"', :color, '"%')
+           """,
+           nativeQuery = true)
+    Page<Photo> searchByColor(@Param("userId") Long userId,
+                              @Param("color") String color,
+                              Pageable pageable);
+
     long countByUserId(Long userId);
 
     @Query("""

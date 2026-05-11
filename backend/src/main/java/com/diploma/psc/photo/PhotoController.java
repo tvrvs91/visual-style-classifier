@@ -58,10 +58,26 @@ public class PhotoController {
 
     @GetMapping("/search")
     public ResponseEntity<Page<PhotoResponse>> search(@AuthenticationPrincipal AuthUser principal,
-                                                      @RequestParam String style,
+                                                      @RequestParam(required = false) String style,
+                                                      @RequestParam(required = false) String color,
                                                       @RequestParam(defaultValue = "0.2") double minConfidence,
                                                       @RequestParam(defaultValue = "0") int page,
                                                       @RequestParam(defaultValue = "20") int size) {
-        return ResponseEntity.ok(photoService.searchByStyle(principal, style, minConfidence, page, size));
+        // Один эндпоинт-универсал: либо style, либо color (приоритет: style).
+        // Для фильтра по обоим одновременно нужен JPA-Specification — оставлено
+        // как future work, на текущем UI используются как взаимоисключающие.
+        if (style != null && !style.isBlank()) {
+            return ResponseEntity.ok(photoService.searchByStyle(principal, style, minConfidence, page, size));
+        }
+        if (color != null && !color.isBlank()) {
+            return ResponseEntity.ok(photoService.searchByColor(principal, color, page, size));
+        }
+        throw new IllegalArgumentException("Either 'style' or 'color' query parameter is required");
+    }
+
+    /** Доступные цветовые семьи для фильтра — фронт строит из этого UI. */
+    @GetMapping("/colors")
+    public ResponseEntity<List<String>> colors() {
+        return ResponseEntity.ok(ColorClassifier.FAMILIES);
     }
 }

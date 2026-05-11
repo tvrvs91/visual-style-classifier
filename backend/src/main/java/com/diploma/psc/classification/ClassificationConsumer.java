@@ -1,5 +1,6 @@
 package com.diploma.psc.classification;
 
+import com.diploma.psc.photo.ColorClassifier;
 import com.diploma.psc.photo.Photo;
 import com.diploma.psc.photo.PhotoFeatures;
 import com.diploma.psc.photo.PhotoFeaturesRepository;
@@ -88,12 +89,17 @@ public class ClassificationConsumer {
             Map<String, Double> scores = result.scores() != null ? result.scores() : Map.of();
             String scoresJson = objectMapper.writeValueAsString(scores);
 
+            // Цветовые семьи из палитры — для фильтрации галереи по цвету
+            var colorFamilies = ColorClassifier.classifyPalette(result.palette());
+            String colorTagsJson = objectMapper.writeValueAsString(colorFamilies);
+
             // @MapsId: photoId выводится Hibernate'ом из photo.id — НЕ устанавливаем явно
             PhotoFeatures features = photoFeaturesRepository.findByPhotoId(photo.getId())
                     .orElseGet(() -> PhotoFeatures.builder().photo(photo).build());
             features.setEmbedding(embeddingJson);
             features.setPalette(paletteJson);
             features.setScores(scoresJson);
+            features.setColorTags(colorTagsJson);
             photoFeaturesRepository.save(features);
         } catch (JsonProcessingException e) {
             log.warn("Failed to serialize features for photo {}: {}", photo.getId(), e.getMessage());

@@ -4,11 +4,26 @@ import PhotoCell, { cellClass } from '../components/PhotoCell.jsx'
 import PhotoModal from '../components/PhotoModal.jsx'
 import { useToast } from '../ToastContext.jsx'
 
+// Цветовые семьи: имя + представительный hex для отображения кружка
+const COLOR_FAMILIES = [
+  { name: 'red',     hex: '#c0392b' },
+  { name: 'orange',  hex: '#e67e22' },
+  { name: 'yellow',  hex: '#f1c40f' },
+  { name: 'green',   hex: '#27ae60' },
+  { name: 'blue',    hex: '#3b5bdb' },
+  { name: 'purple',  hex: '#8e44ad' },
+  { name: 'pink',    hex: '#e684a3' },
+  { name: 'brown',   hex: '#7a4f3c' },
+  { name: 'neutral', hex: '#888' },
+]
+
 export default function GalleryPage() {
   const toast = useToast()
   const [photos, setPhotos] = useState([])
   const [styles, setStyles] = useState([])
+  // Только один фильтр активен одновременно: style ИЛИ color ИЛИ all.
   const [filterStyle, setFilterStyle] = useState('')
+  const [filterColor, setFilterColor] = useState('')
   const [minConfidence, setMinConfidence] = useState(0.2)
   const [loading, setLoading] = useState(false)
   const [active, setActive] = useState(null)
@@ -33,12 +48,17 @@ export default function GalleryPage() {
 
   const fetchPhotos = useCallback(async () => {
     try {
-      const { data } = filterStyle
-        ? await photoApi.search(filterStyle, minConfidence, 0, 60)
-        : await photoApi.list(0, 60)
-      setPhotos(data.content || [])
+      let resp
+      if (filterStyle) {
+        resp = await photoApi.search(filterStyle, minConfidence, 0, 60)
+      } else if (filterColor) {
+        resp = await photoApi.searchByColor(filterColor, 0, 60)
+      } else {
+        resp = await photoApi.list(0, 60)
+      }
+      setPhotos(resp.data.content || [])
     } catch { /* 401 handled by axios interceptor */ }
-  }, [filterStyle, minConfidence])
+  }, [filterStyle, filterColor, minConfidence])
 
   useEffect(() => {
     setLoading(true)
@@ -58,12 +78,23 @@ export default function GalleryPage() {
     if (fresh && fresh !== active) setActive(fresh)
   }, [photos, active])
 
+  const onPickStyle = (s) => {
+    setFilterStyle(s); setFilterColor('')
+  }
+  const onPickColor = (c) => {
+    setFilterColor(c); setFilterStyle('')
+  }
+  const clearAll = () => {
+    setFilterStyle(''); setFilterColor('')
+  }
+
   return (
     <>
+      {/* Style filter pills */}
       <div className="filter-bar">
         <button
-          className={`filter-pill ${filterStyle === '' ? 'active' : ''}`}
-          onClick={() => setFilterStyle('')}
+          className={`filter-pill ${!filterStyle && !filterColor ? 'active' : ''}`}
+          onClick={clearAll}
         >
           All
         </button>
@@ -71,7 +102,7 @@ export default function GalleryPage() {
           <button
             key={s}
             className={`filter-pill ${filterStyle === s ? 'active' : ''}`}
-            onClick={() => setFilterStyle(s)}
+            onClick={() => onPickStyle(s)}
           >
             {s.replace('_', ' ')}
           </button>
@@ -86,6 +117,26 @@ export default function GalleryPage() {
               onChange={(e) => setMinConfidence(Number(e.target.value))}
             />
           </span>
+        )}
+      </div>
+
+      {/* Color filter dots */}
+      <div className="filter-bar color-filter-bar">
+        <span className="filter-label">Color</span>
+        {COLOR_FAMILIES.map((c) => (
+          <button
+            key={c.name}
+            className={`color-dot ${filterColor === c.name ? 'active' : ''}`}
+            style={{ backgroundColor: c.hex }}
+            title={c.name}
+            onClick={() => onPickColor(c.name)}
+            aria-label={`Filter by ${c.name}`}
+          />
+        ))}
+        {filterColor && (
+          <button className="filter-pill" onClick={() => setFilterColor('')}>
+            ✕ {filterColor}
+          </button>
         )}
       </div>
 

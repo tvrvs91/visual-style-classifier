@@ -54,8 +54,11 @@ export const photoApi = {
   delete: (id) => api.delete(`/photos/${id}`),
   search: (style, minConfidence = 0.2, page = 0, size = 20) =>
     api.get('/photos/search', { params: { style, minConfidence, page, size } }),
+  searchByColor: (color, page = 0, size = 60) =>
+    api.get('/photos/search', { params: { color, page, size } }),
   similar: (id, limit = 6) =>
     api.get(`/photos/${id}/similar`, { params: { limit } }),
+  colors: () => api.get('/photos/colors'),
 }
 
 export const styleApi = {

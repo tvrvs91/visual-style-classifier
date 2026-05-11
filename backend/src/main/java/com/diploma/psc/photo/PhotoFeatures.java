@@ -44,6 +44,14 @@ public class PhotoFeatures {
     @Column(columnDefinition = "TEXT", nullable = false)
     private String scores;
 
+    /**
+     * JSON-массив цветовых семей из палитры, например ["brown","neutral","blue"].
+     * Производное от palette через {@link ColorClassifier}. Используется для
+     * фильтрации галереи по доминирующему цвету. Nullable для старых строк.
+     */
+    @Column(name = "color_tags", columnDefinition = "TEXT")
+    private String colorTags;
+
     @Column(name = "extracted_at", nullable = false, updatable = false)
     private Instant extractedAt;
 

@@ -96,6 +96,13 @@ public class PhotoService {
                 .map(this::toResponse);
     }
 
+    @Transactional(readOnly = true)
+    public Page<PhotoResponse> searchByColor(AuthUser principal, String color, int page, int size) {
+        var pageable = PageRequest.of(page, size);
+        return photoRepository.searchByColor(principal.getUserId(), color, pageable)
+                .map(this::toResponse);
+    }
+
     private void validate(MultipartFile file) {
         if (file == null || file.isEmpty()) throw new IllegalArgumentException("File is empty");
         String ct = file.getContentType();
