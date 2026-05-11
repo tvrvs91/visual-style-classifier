@@ -34,14 +34,14 @@ class Settings(BaseSettings):
 
     # Классы в АЛФАВИТНОМ порядке — индексы здесь должны совпадать с порядком,
     # в котором тренировалась голова модели (state_dict выходного Linear).
+    # Изначально было 8 классов; moody и street исключены как методологически
+    # слабые (moody — эмоция, street — жанр/сюжет, не визуальный стиль).
     styles: list[str] = [
         "airy",
         "dark",
         "dramatic",
         "golden_hour",
         "minimalist",
-        "moody",
-        "street",
         "vintage",
     ]
 
