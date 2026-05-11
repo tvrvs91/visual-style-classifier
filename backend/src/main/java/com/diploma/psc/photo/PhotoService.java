@@ -8,6 +8,9 @@ import com.diploma.psc.photo.dto.StyleTagResponse;
 import com.diploma.psc.style.PhotoStyle;
 import com.diploma.psc.user.User;
 import com.diploma.psc.user.UserRepository;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -19,6 +22,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 @Service
@@ -29,10 +33,16 @@ public class PhotoService {
     private static final Set<String> ALLOWED_CONTENT_TYPES =
             Set.of("image/jpeg", "image/jpg", "image/png", "image/webp");
 
+    private static final TypeReference<List<String>> PALETTE_TYPE = new TypeReference<>() {};
+    private static final TypeReference<Map<String, Double>> SCORES_TYPE = new TypeReference<>() {};
+
     private final PhotoRepository photoRepository;
     private final UserRepository userRepository;
     private final MinioService minioService;
     private final ClassificationProducer producer;
+    private final PhotoFeaturesRepository photoFeaturesRepository;
+    private final SimilarityService similarityService;
+    private final ObjectMapper objectMapper;
 
     @Transactional
     public PhotoResponse upload(MultipartFile file, AuthUser principal) {
@@ -94,18 +104,62 @@ public class PhotoService {
         }
     }
 
+    @Transactional(readOnly = true)
+    public List<PhotoResponse> similar(Long photoId, AuthUser principal, int limit) {
+        // проверка владения
+        photoRepository.findByIdAndUserId(photoId, principal.getUserId())
+                .orElseThrow(() -> new IllegalArgumentException("Photo not found"));
+
+        List<Long> similarIds = similarityService.findSimilarPhotoIds(
+                principal.getUserId(), photoId, limit);
+
+        if (similarIds.isEmpty()) return List.of();
+
+        // Сохраняем порядок по убыванию similarity
+        var found = photoRepository.findAllById(similarIds);
+        var byId = new java.util.HashMap<Long, Photo>();
+        for (Photo p : found) byId.put(p.getId(), p);
+
+        return similarIds.stream()
+                .map(byId::get)
+                .filter(java.util.Objects::nonNull)
+                .map(this::toResponse)
+                .toList();
+    }
+
     private PhotoResponse toResponse(Photo photo) {
         List<StyleTagResponse> tags = photo.getStyles().stream()
                 .sorted(Comparator.comparingDouble(PhotoStyle::getConfidence).reversed())
                 .map(ps -> new StyleTagResponse(ps.getStyle().getName(), ps.getConfidence()))
                 .toList();
+
+        // Подмешиваем palette и scores из PhotoFeatures (могут отсутствовать у
+        // фото залитых ДО введения этой фичи или ещё в обработке)
+        List<String> palette = List.of();
+        Map<String, Double> scores = Map.of();
+        var features = photoFeaturesRepository.findByPhotoId(photo.getId()).orElse(null);
+        if (features != null) {
+            try {
+                if (features.getPalette() != null && !features.getPalette().isBlank()) {
+                    palette = objectMapper.readValue(features.getPalette(), PALETTE_TYPE);
+                }
+                if (features.getScores() != null && !features.getScores().isBlank()) {
+                    scores = objectMapper.readValue(features.getScores(), SCORES_TYPE);
+                }
+            } catch (JsonProcessingException e) {
+                log.warn("Failed to deserialize features for photo {}: {}", photo.getId(), e.getMessage());
+            }
+        }
+
         return new PhotoResponse(
                 photo.getId(),
                 photo.getS3Key(),
                 minioService.presignedGetUrl(photo.getS3Key()),
                 photo.getUploadedAt(),
                 photo.getStatus(),
-                tags
+                tags,
+                palette,
+                scores
         );
     }
 }

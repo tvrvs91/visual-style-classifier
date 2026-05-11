@@ -29,16 +29,23 @@ def handle_task(task: dict) -> dict:
             "status": "ERROR",
             "error": "missing photoId or s3Key",
             "styles": [],
+            "embedding": None,
+            "palette": [],
+            "scores": {},
         }
 
     try:
         data = download_bytes(bucket, s3_key)
-        predictions = classifier.predict(data)
+        result = classifier.analyze(data)
         return {
             "photoId": photo_id,
             "status": "OK",
             "error": None,
-            "styles": [{"name": name, "confidence": float(conf)} for name, conf in predictions],
+            "styles": [{"name": name, "confidence": float(conf)}
+                       for name, conf in result["styles"]],
+            "embedding": result["embedding"],     # 1280-dim или null в heuristic-режиме
+            "palette": result["palette"],         # ["#aabbcc", ...] — 5 hex-цветов
+            "scores": result["scores"],           # {brightness, contrast, saturation, warmth, sharpness}
         }
     except Exception as e:
         log.exception("Classification failed for photoId=%s", photo_id)
@@ -47,6 +54,9 @@ def handle_task(task: dict) -> dict:
             "status": "ERROR",
             "error": str(e),
             "styles": [],
+            "embedding": None,
+            "palette": [],
+            "scores": {},
         }
 
 
@@ -57,9 +67,10 @@ worker = RabbitMQWorker(handle_task)
 async def lifespan(app: FastAPI):
     worker.start()
     if classifier.use_heuristic:
-        log.warning("Fallback: heuristic mode")
+        log.warning("Fallback: heuristic mode (embeddings disabled)")
     else:
-        log.info("Model loaded: EfficientNet-B0 (weights: %s)", classifier.weights_path)
+        log.info("Model loaded: EfficientNet-B0 (weights: %s) — embeddings enabled (1280-dim)",
+                 classifier.weights_path)
     yield
     worker.stop()
 

@@ -42,7 +42,10 @@ class ClassificationConsumerTest extends IntegrationTestBase {
                 List.of(
                         new ClassificationResult.StyleScore("moody", 0.72),
                         new ClassificationResult.StyleScore("dark", 0.21)
-                )
+                ),
+                List.of(0.1, 0.2, 0.3),  // фейк-эмбеддинг
+                List.of("#aabbcc", "#112233"),
+                java.util.Map.of("brightness", 0.5)
         );
 
         rabbitTemplate.convertAndSend(exchange, resultRoutingKey, result);
@@ -70,7 +73,8 @@ class ClassificationConsumerTest extends IntegrationTestBase {
                 .user(user).s3Key("user-2/y.jpg").status(PhotoStatus.PENDING).build());
 
         ClassificationResult result = new ClassificationResult(
-                photo.getId(), "ERROR", "model crashed", List.of());
+                photo.getId(), "ERROR", "model crashed", List.of(),
+                null, List.of(), java.util.Map.of());
         rabbitTemplate.convertAndSend(exchange, resultRoutingKey, result);
 
         Awaitility.await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> {

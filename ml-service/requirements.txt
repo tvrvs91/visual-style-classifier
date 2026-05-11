@@ -7,3 +7,5 @@ torch==2.4.1
 torchvision==0.19.1
 pydantic==2.9.2
 pydantic-settings==2.5.2
+scikit-learn==1.5.2
+numpy==1.26.4

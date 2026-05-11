@@ -347,6 +347,118 @@ Fallback: heuristic mode
 
 ---
 
+## M13. Таксономия: 8 → 7 классов (удаление street + сокращение moody)
+
+**Тезисы.**
+- На основе анализа ошибок и поведения модели на out-of-distribution фото
+  принято решение пересмотреть таксономию классов.
+- **`street` удалён полностью** — это жанровая/сюжетная категория, не визуальный
+  стиль; модель училась shortcut'у «есть люди на улице → street», а не
+  стилистическим признакам.
+- **`moody` сохранён, но сбалансирован** — выборка обрезана с 1432 до 500 фото
+  (как у `golden_hour` и `dramatic`), чтобы устранить class bias.
+- Также удалено **162 межисточниковых дубликата** через MD5-хеш — типичная
+  проблема при параллельном скачивании с Unsplash и Pexels.
+- Применён двухфазный fine-tuning (5 эпох голова → 25 эпох всё с cosine LR),
+  WeightedRandomSampler, label smoothing 0.1, mixed precision на T4.
+
+**Результат:**
+- val accuracy: **67.8% → 72.4%** (+4.5 пп)
+- bias-эффект устранён: ratio предсказаний 0.93–1.10 (было >2.5)
+- `golden_hour` поднялся с миссного класса до F1=0.899 (лучший)
+- `moody` ожидаемо остался слабым (F1=0.549) — пересекается с dark/dramatic
+
+**Файлы.**
+- `backend/db/migration/V2__remove_moody_and_street.sql` (потом V3 вернул moody)
+- `backend/db/migration/V3__restore_moody.sql` — возврат moody после переобучения
+- `ml-service/app/config.py` — 7 классов в алфавитном порядке
+- `training/COLAB.md` — pipeline preparation cells
+- `training/ANALYSIS.md` — методологическое обоснование сокращения
+
+---
+
+## M14. Главная ML-фича: embedding-based similarity
+
+**Тезисы.**
+- Реализована **ключевая ML-фича диплома** — извлечение и использование
+  1280-мерных эмбеддингов из предпоследнего слоя EfficientNet-B0 (выход
+  global average pooling, до классифицирующего Linear). Эти вектора служат
+  плотным представлением визуального стиля фотографии в выученном пространстве
+  признаков.
+- **Преимущество над tag-based search:** два фото могут получить разные
+  top-1 теги из-за мелких различий в softmax, но быть очень близкими в
+  embedding-пространстве. Cosine similarity улавливает это, поиск по тегам — нет.
+- Архитектурный split: forward через `model.features → model.avgpool → flatten`
+  даёт embedding; `model.classifier(flat)` — логиты. Один прямой проход, два выхода.
+- Хранение: новая таблица `photo_features` (1:1 с photos), embedding как JSON-text.
+  ~25 KB на фото — 25 MB на 1000 фото. Для масштабирования к 100k+ запланирован
+  переход на pgvector / Qdrant.
+- Поиск: брут-форс cosine similarity O(N·1280) в Java через `SimilarityService`.
+  Для коллекций до ~10k фото это <50ms на запрос.
+
+**Файлы.**
+- `ml-service/app/classifier.py` — `analyze()` возвращает (styles, embedding, palette, scores)
+- `backend/.../photo/PhotoFeatures.java` (новая сущность)
+- `backend/.../photo/PhotoFeaturesRepository.java`
+- `backend/.../photo/SimilarityService.java` — cosine sim, top-K
+- `backend/db/migration/V4__add_photo_features.sql`
+- `PhotoController.GET /api/photos/{id}/similar` — новый эндпоинт
+- `frontend`: `PhotoModal` использует новый эндпоинт вместо tag-based search
+
+---
+
+## M15. Расширенный визуальный анализ: palette + score card
+
+**Тезисы.** Помимо классификации стилей, система извлекает два дополнительных
+слоя описания изображения — оба без участия нейросети, чисто детерминированно
+из пиксельной статистики.
+
+**Color palette (k-means).** 5 доминирующих цветов в RGB-пространстве через
+sklearn KMeans (n_clusters=5, по downsampled 100×100). Кластеры сортируются
+по размеру (самый частый цвет первым), возвращаются как hex-строки.
+В UI — сватчи квадратиками под анализом стилей.
+
+**Score card.** 5 количественных метрик в диапазоне [0, 1]:
+- `brightness` — средняя perceptual luma (Y' = 0.299R + 0.587G + 0.114B)
+- `contrast` — std яркости × 2 (clamp до [0,1])
+- `saturation` — средний (max-min)/max в RGB
+- `warmth` — нормализованное (R - B), >0.5 = тёплый
+- `sharpness` — средняя величина градиента яркости (proxy для детализации)
+
+**Зачем это в дипломе.** Помимо красивого UI, эти метрики служат
+объективным **обоснованием классов стилей**: класс `airy` — это высокий
+brightness + низкий contrast; `golden_hour` — высокий warmth + средняя
+saturation. Можно посчитать средние scores для каждого класса в датасете
+и показать что таксономия не выдумана, а формально определима через
+эти атрибуты.
+
+**Файлы.** `ml-service/app/classifier.py` (методы `_extract_palette`,
+`_compute_scores`), `PhotoResponse` DTO, `PhotoModal.jsx`.
+
+---
+
+## M16. Анализ конкурентных продуктов и обоснование стека
+
+**Тезисы.**
+В REPORT.md добавлены две новые подглавы:
+- **§1.4 Обзор существующих решений** — сравнение с Pinterest, Are.na,
+  Cosmos, Google Photos, Adobe Lightroom Sensei, Prisma, академическими
+  работами (Flickr-Style, AVA). Сводная таблица позиционирования.
+  Главный вывод: ниша «open-source self-hosted стилевой классификатор
+  с публичным embedding-API» не освоена коммерческими продуктами.
+- **§1.5 Обзор технологий** — для каждой ключевой технологии стека
+  таблица альтернатив с обоснованием выбора:
+  Spring Boot vs Django vs Express vs Go,
+  PyTorch vs TensorFlow vs JAX,
+  RabbitMQ vs Kafka vs Redis Streams,
+  MinIO vs S3 vs локальная ФС,
+  PostgreSQL vs MySQL vs MongoDB,
+  React vs Vue vs Angular vs Svelte,
+  JWT vs session-cookies,
+  Docker Compose vs Kubernetes.
+
+---
+
 ## Сводная карта сделанного (для разворачивания в отчёт)
 
 | Milestone | Что | Коммит |
@@ -357,11 +469,15 @@ Fallback: heuristic mode
 | M3 | GitHub Actions CI + JwtService unit-тесты | `1e1fc23` |
 | M4 | Профессиональный README с бейджами | в `f3f92ff` |
 | M5 | Testcontainers integration tests (11/11) | `35495d6` |
-| M6 | Toast-уведомления + skeleton-плейсхолдеры | следующий коммит |
-| M7 | Profile page + `/api/stats/me` | следующий коммит |
-| M8 | UML-диаграммы Mermaid в `docs/diagrams.md` | следующий коммит |
+| M6 | Toast-уведомления + skeleton-плейсхолдеры | `e3b7395` |
+| M7 | Profile page + `/api/stats/me` | `f442d70` |
+| M8 | UML-диаграммы Mermaid в `docs/diagrams.md` | `4a8f319` |
 | M9 | OWASP-разбор (тезисы в этом файле) | будущая работа |
 | M10 | 401 вместо 403 на отсутствующий JWT | `9c87854` |
 | M11 | Подключение настоящего EfficientNet-B0 | `04f96ce` |
-| M12 | Зафиксированы метрики обучения двух экспериментов | следующий коммит |
+| M12 | Зафиксированы метрики обучения двух экспериментов | `2c8c6af` |
+| M13 | Таксономия 8→7 классов, дедуп, переобучение (67.8%→72.4%) | `6f266f7` + предыдущие |
+| M14 | Embedding-based similarity (главная ML-фича) | следующий коммит |
+| M15 | Color palette + score card (расширенный анализ) | следующий коммит |
+| M16 | Анализ конкурентов и стека в REPORT.md | следующий коммит |
 

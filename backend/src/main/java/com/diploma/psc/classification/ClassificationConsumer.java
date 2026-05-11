@@ -1,6 +1,8 @@
 package com.diploma.psc.classification;
 
 import com.diploma.psc.photo.Photo;
+import com.diploma.psc.photo.PhotoFeatures;
+import com.diploma.psc.photo.PhotoFeaturesRepository;
 import com.diploma.psc.photo.PhotoRepository;
 import com.diploma.psc.photo.PhotoStatus;
 import com.diploma.psc.style.PhotoStyle;
@@ -8,11 +10,15 @@ import com.diploma.psc.style.PhotoStyleId;
 import com.diploma.psc.style.PhotoStyleRepository;
 import com.diploma.psc.style.Style;
 import com.diploma.psc.style.StyleRepository;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.Map;
 
 @Component
 @RequiredArgsConstructor
@@ -22,6 +28,8 @@ public class ClassificationConsumer {
     private final PhotoRepository photoRepository;
     private final StyleRepository styleRepository;
     private final PhotoStyleRepository photoStyleRepository;
+    private final PhotoFeaturesRepository photoFeaturesRepository;
+    private final ObjectMapper objectMapper;
 
     @RabbitListener(queues = "${app.rabbitmq.result-queue}")
     @Transactional
@@ -41,6 +49,7 @@ public class ClassificationConsumer {
             return;
         }
 
+        // 1. Style tags ------------------------------------------------------
         photoStyleRepository.deleteByPhotoId(photo.getId());
         photoStyleRepository.flush();
 
@@ -61,7 +70,33 @@ public class ClassificationConsumer {
             }
         }
 
+        // 2. Extended ML features (embedding + palette + scores) ------------
+        saveFeatures(photo, result);
+
         photo.setStatus(PhotoStatus.DONE);
         photoRepository.save(photo);
+    }
+
+    private void saveFeatures(Photo photo, ClassificationResult result) {
+        try {
+            String embeddingJson = result.embedding() != null
+                    ? objectMapper.writeValueAsString(result.embedding())
+                    : "[]";
+            String paletteJson = result.palette() != null
+                    ? objectMapper.writeValueAsString(result.palette())
+                    : "[]";
+            Map<String, Double> scores = result.scores() != null ? result.scores() : Map.of();
+            String scoresJson = objectMapper.writeValueAsString(scores);
+
+            // @MapsId: photoId выводится Hibernate'ом из photo.id — НЕ устанавливаем явно
+            PhotoFeatures features = photoFeaturesRepository.findByPhotoId(photo.getId())
+                    .orElseGet(() -> PhotoFeatures.builder().photo(photo).build());
+            features.setEmbedding(embeddingJson);
+            features.setPalette(paletteJson);
+            features.setScores(scoresJson);
+            photoFeaturesRepository.save(features);
+        } catch (JsonProcessingException e) {
+            log.warn("Failed to serialize features for photo {}: {}", photo.getId(), e.getMessage());
+        }
     }
 }

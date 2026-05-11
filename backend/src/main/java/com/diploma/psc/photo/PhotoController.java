@@ -9,6 +9,8 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.util.List;
+
 @RestController
 @RequestMapping("/api/photos")
 @RequiredArgsConstructor
@@ -33,6 +35,18 @@ public class PhotoController {
                                        @AuthenticationPrincipal AuthUser principal) {
         photoService.delete(id, principal);
         return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * Embedding-based поиск похожих фотографий — использует cosine similarity
+     * в 1280-мерном пространстве признаков EfficientNet-B0. Точнее чем
+     * tag-based search (которая всё ещё доступна через /search?style=...).
+     */
+    @GetMapping("/{id}/similar")
+    public ResponseEntity<List<PhotoResponse>> similar(@PathVariable Long id,
+                                                       @RequestParam(defaultValue = "6") int limit,
+                                                       @AuthenticationPrincipal AuthUser principal) {
+        return ResponseEntity.ok(photoService.similar(id, principal, limit));
     }
 
     @GetMapping
