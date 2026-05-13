@@ -211,18 +211,23 @@ def main():
     grid.save(args.out_dir / "gradcam_grid.png")
     print(f"  saved {args.out_dir / 'gradcam_grid.png'}")
 
-    # --- 2. Топ-K «уверенно неправильных» предсказаний ---
+    # --- 2. Топ-K «уверенно неправильных» предсказаний (batched scan) ---
     print("\nScanning for high-confidence misclassifications...")
+    from torch.utils.data import DataLoader
     model.eval()
     misclassified: list[tuple[float, int, int, int]] = []  # (conf, idx, true, pred)
+    scan_loader = DataLoader(val_ds, batch_size=64, shuffle=False, num_workers=2)
+    cursor = 0
     with torch.no_grad():
-        for img_idx in range(len(val_ds)):
-            img_path, true_label = val_ds.samples[img_idx]
-            x_t = eval_tf(Image.open(img_path).convert("RGB")).unsqueeze(0).to(device)
-            probs = F.softmax(model(x_t), dim=1).cpu().numpy()[0]
-            pred_idx = int(np.argmax(probs))
-            if pred_idx != true_label:
-                misclassified.append((float(probs[pred_idx]), img_idx, true_label, pred_idx))
+        for x_batch, y_batch in scan_loader:
+            x_batch = x_batch.to(device)
+            probs = F.softmax(model(x_batch), dim=1).cpu().numpy()
+            preds = probs.argmax(axis=1)
+            for i, (pred, true) in enumerate(zip(preds, y_batch.numpy())):
+                if pred != true:
+                    misclassified.append((float(probs[i, pred]), cursor + i,
+                                          int(true), int(pred)))
+            cursor += x_batch.size(0)
 
     misclassified.sort(reverse=True)
     print(f"  found {len(misclassified)} misclassifications "

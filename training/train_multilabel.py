@@ -48,13 +48,12 @@ from __future__ import annotations
 import argparse
 import json
 import time
-from collections import Counter, defaultdict
+from collections import Counter
 from pathlib import Path
 
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from PIL import Image
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
@@ -127,16 +126,43 @@ def derive_co_labels(scores: dict, gold_class: str, class_names: list[str]) -> n
 
 
 class MultiLabelStyleDataset(Dataset):
-    def __init__(self, root: Path, class_names: list[str], train: bool):
+    """Multi-label датасет с предвычисленными метками.
+
+    Метки derived from score-card зависят только от исходной фотографии,
+    не от аугментаций. Поэтому считаем их один раз в `__init__` и
+    кэшируем — иначе при каждом `__getitem__` тратим время на повторный
+    score_card + ColorJitter не сдвигает метки.
+    """
+
+    def __init__(self, root: Path, class_names: list[str], train: bool,
+                 cached_labels: np.ndarray | None = None):
         self.class_names = class_names
         self.samples: list[tuple[Path, str]] = []
         for cls in class_names:
             cls_dir = root / cls
             if not cls_dir.is_dir():
                 continue
-            for p in cls_dir.iterdir():
+            for p in sorted(cls_dir.iterdir()):
                 if p.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"}:
                     self.samples.append((p, cls))
+
+        if cached_labels is not None:
+            assert len(cached_labels) == len(self.samples), \
+                f"cached_labels size mismatch: {len(cached_labels)} vs {len(self.samples)}"
+            self.labels = cached_labels
+        else:
+            print(f"  precomputing co-labels for {len(self.samples)} images "
+                  f"({'train' if train else 'val'})...")
+            labels = np.zeros((len(self.samples), len(class_names)), dtype=np.float32)
+            for i, (path, cls) in enumerate(self.samples):
+                with Image.open(path) as im:
+                    im = im.convert("RGB")
+                    scores = score_card(im)
+                labels[i] = derive_co_labels(scores, cls, class_names)
+                if (i + 1) % 500 == 0:
+                    print(f"    {i + 1}/{len(self.samples)}")
+            self.labels = labels
+
         if train:
             self.tf = transforms.Compose([
                 transforms.RandomResizedCrop(224, scale=(0.7, 1.0)),
@@ -157,13 +183,9 @@ class MultiLabelStyleDataset(Dataset):
         return len(self.samples)
 
     def __getitem__(self, i):
-        path, cls = self.samples[i]
+        path, _ = self.samples[i]
         img = Image.open(path).convert("RGB")
-        # Score-card нужно считать на исходном изображении, ДО аугментаций,
-        # иначе RandomResizedCrop и ColorJitter сдвинут метки.
-        scores = score_card(img)
-        y = derive_co_labels(scores, cls, self.class_names)
-        return self.tf(img), torch.from_numpy(y)
+        return self.tf(img), torch.from_numpy(self.labels[i])
 
 
 def build_model(num_classes: int, init_weights: Path | None) -> nn.Module:
@@ -179,15 +201,15 @@ def build_model(num_classes: int, init_weights: Path | None) -> nn.Module:
     return m
 
 
-def compute_pos_weight(loader: DataLoader, num_classes: int) -> torch.Tensor:
-    """pos_weight = neg / pos для каждого класса (для BCEWithLogits)."""
-    pos = torch.zeros(num_classes)
-    total = 0
-    for _, y in loader:
-        pos += y.sum(dim=0)
-        total += y.size(0)
+def compute_pos_weight_from_labels(labels: np.ndarray) -> torch.Tensor:
+    """pos_weight = neg / pos для каждого класса (для BCEWithLogits).
+
+    Берём готовые метки (без forward через transform pipeline).
+    """
+    pos = torch.from_numpy(labels.sum(axis=0)).float()
+    total = labels.shape[0]
     neg = total - pos
-    return (neg / pos.clamp(min=1)).clamp(max=20.0)  # верх ограничен чтобы не разнесло
+    return (neg / pos.clamp(min=1)).clamp(max=20.0)
 
 
 def tune_thresholds(probs: np.ndarray, y_true: np.ndarray) -> np.ndarray:
@@ -277,6 +299,9 @@ def main():
     class_names = sorted([d.name for d in train_root.iterdir() if d.is_dir()])
     print(f"Classes ({len(class_names)}): {class_names}")
 
+    # Один проход через train: считаем score_card → derive_co_labels.
+    # Метки кэшируются и больше не пересчитываются (один из ключевых fix-ов
+    # против медленной итерации: ColorJitter и crops не меняют score_card).
     train_ds = MultiLabelStyleDataset(train_root, class_names, train=True)
     val_ds = MultiLabelStyleDataset(val_root, class_names, train=False)
     print(f"Train: {len(train_ds)}  Val: {len(val_ds)}")
@@ -286,24 +311,23 @@ def main():
     val_loader = DataLoader(val_ds, batch_size=args.batch_size, shuffle=False,
                             num_workers=args.num_workers, pin_memory=True)
 
-    # Статистика co-label'ов
-    print("Counting co-labels on train set (one pass without aug)...")
-    co_counts = Counter()
+    # Статистика co-label'ов прямо из закэшированных меток (без проходов loader'ов)
+    print("Co-label statistics from cached labels...")
+    co_counts: Counter = Counter()
     label_combos: Counter = Counter()
-    pure_train_ds = MultiLabelStyleDataset(train_root, class_names, train=False)
-    for _, y in DataLoader(pure_train_ds, batch_size=64, num_workers=args.num_workers):
-        for vec in y.numpy():
-            active = tuple(i for i, v in enumerate(vec) if v > 0.5)
-            label_combos[active] += 1
-            for i in active:
-                co_counts[class_names[i]] += 1
-    n_total = sum(label_combos.values())
+    for vec in train_ds.labels:
+        active = tuple(i for i, v in enumerate(vec) if v > 0.5)
+        label_combos[active] += 1
+        for i in active:
+            co_counts[class_names[i]] += 1
+    n_total = len(train_ds)
     multi_label_share = sum(c for k, c in label_combos.items() if len(k) > 1) / n_total
     print(f"  ≥2 меток: {multi_label_share:.1%}")
     top_combos = label_combos.most_common(10)
     co_label_stats = {
         "per_class_positives": dict(co_counts),
         "share_multi_label": multi_label_share,
+        "n_train": n_total,
         "top_combinations": [
             {"labels": [class_names[i] for i in combo], "count": cnt}
             for combo, cnt in top_combos
@@ -315,9 +339,8 @@ def main():
     # Модель
     model = build_model(len(class_names), args.init_weights).to(device)
 
-    # pos_weight
-    print("Computing pos_weight for BCEWithLogits...")
-    pos_w = compute_pos_weight(train_loader, len(class_names)).to(device)
+    # pos_weight из меток (без forward через transforms)
+    pos_w = compute_pos_weight_from_labels(train_ds.labels).to(device)
     print(f"  pos_weight: {pos_w.cpu().numpy().round(2).tolist()}")
     criterion = nn.BCEWithLogitsLoss(pos_weight=pos_w)
 

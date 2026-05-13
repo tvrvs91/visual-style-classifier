@@ -190,7 +190,7 @@ def run_baseline(rows: list[dict], out_path: Path) -> dict:
     results = {}
     for name, clf in [
         ("logreg", Pipeline([("scaler", StandardScaler()),
-                             ("clf", LogisticRegression(max_iter=2000, multi_class="auto"))])),
+                             ("clf", LogisticRegression(max_iter=2000))])),
         ("random_forest", RandomForestClassifier(n_estimators=300, random_state=42, n_jobs=-1)),
     ]:
         clf.fit(X_tr, y_tr)

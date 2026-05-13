@@ -131,8 +131,7 @@ def plot_centroid_heatmap(sim: np.ndarray, class_names: list[str], out_path: Pat
     ax.set_title("Cosine similarity между центроидами классов в embedding space")
     fig.tight_layout()
     fig.savefig(out_path, dpi=140)
-    import matplotlib
-    matplotlib.pyplot.close(fig)
+    plt.close(fig)
 
 
 def plot_2d_scatter(coords: np.ndarray, y: np.ndarray,
