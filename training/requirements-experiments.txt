@@ -1,0 +1,16 @@
+# Дополнительные зависимости для экспериментов E1–E6.
+# Базовые (torch, torchvision, scikit-learn, pillow, matplotlib) — из training/train.py.
+
+# E1 Grad-CAM — собственная реализация на hooks, доп. зависимостей нет.
+
+# E2 t-SNE / UMAP
+umap-learn>=0.5
+
+# E3 ANOVA + Kruskal-Wallis
+scipy>=1.10
+
+# E5 CLIP
+open_clip_torch>=2.20
+
+# Опционально (если open_clip недоступен, fallback на HuggingFace)
+# transformers>=4.40
