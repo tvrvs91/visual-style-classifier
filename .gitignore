@@ -35,10 +35,11 @@ build/
 dist/
 .cache/
 
-# ML models
+# ML models and raw embeddings
 *.pth
 *.pt
 *.onnx
+*.npy
 
 # Trained model weights — large binaries kept local only
 ml-service/weights/*
