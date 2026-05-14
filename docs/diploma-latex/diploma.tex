@@ -1291,4 +1291,444 @@ neon         & $0{,}904$ & $0{,}838$           & $0{,}916$ & $-6{,}6$ \\
 
 \paragraph{Ограничения подхода.} Автоматически сгенерированная multi"=label разметка не~является replacement для~ручной аннотации: пороги в~правилах подобраны эмпирически и~могут не~совпадать с~экспертной оценкой. Для~production"=деплоя multi"=label модели рекомендуется ручная разметка $\sim$\,500"=1000~изображений и~калибровка порогов на~ней. Тем не~менее, полученные результаты однозначно демонстрируют направление улучшения и~устанавливают эмпирическую верхнюю границу качества.
 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% ГЛАВА 6
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\chapter{Развёртывание, безопасность и направления развития}
+\label{ch:deploy}
+
+\section{Локальное развёртывание}
+\label{sec:local_deploy}
+
+Развёртывание системы на~одной хост"=машине выполняется через Docker Compose. Минимальный сценарий запуска:
+
+\begin{lstlisting}[basicstyle=\ttfamily\small,frame=single,caption={Команды запуска системы},label=lst:run]
+git clone https://github.com/<user>/visual-style-classifier.git
+cd visual-style-classifier
+docker compose up -d --build
+cd frontend && npm install && npm run dev
+\end{lstlisting}
+
+Команда \verb|docker compose up -d --build| собирает образы backend'а и~ML"=сервиса (первый запуск занимает $\sim$\,10~минут из-за загрузки PyTorch и~базовых образов; повторные старты "--- $\sim$\,30~секунд), поднимает все контейнеры в~нужном порядке через \verb|depends_on: condition: service_healthy|, инициализирует MinIO"=бакет через одноразовый \texttt{minio-init}"=контейнер.
+
+Точки доступа после старта:
+
+\begin{table}[!ht]
+\caption{Точки доступа к компонентам системы}
+\label{tab:entry_points}
+\centering
+\begin{tabular}{lp{8cm}}
+\toprule
+\textbf{URL} & \textbf{Назначение} \\
+\midrule
+\verb|http://localhost:5173|     & React"=клиент (dev"=режим Vite) \\
+\verb|http://localhost:8080|     & Spring backend REST"=API \\
+\verb|http://localhost:8000/health| & ML"=сервис health"=check \\
+\verb|http://localhost:9001|     & MinIO Console (\verb|psc_admin| / \verb|psc_admin_password|) \\
+\verb|http://localhost:15672|    & RabbitMQ Management (\verb|psc_user| / \verb|psc_password|) \\
+\verb|localhost:55432|           & PostgreSQL (хост"=порт сдвинут с~5432 во~избежание конфликта) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Подключение обученной модели}
+\label{sec:weights_deploy}
+
+Файл весов передаётся ML"=сервису через volume mount: каталог \verb|ml-service/weights/| на~хосте смонтирован как \verb|/app/weights/| в~контейнере. Обновление модели "--- два шага:
+
+\begin{lstlisting}[basicstyle=\ttfamily\small,frame=single,caption={Обновление обученной модели},label=lst:update_weights]
+cp /path/to/efficientnet_b0_styles.pth ml-service/weights/
+docker compose restart ml-service
+\end{lstlisting}
+
+Перезапуск ML"=контейнера занимает $\sim$\,5~секунд. После старта проверка через \verb|GET /health| должна вернуть \texttt{model: "efficientnet\_b0"} вместо \texttt{model: "heuristic"}. Эта~же команда отображает путь к~подхваченному файлу весов и~используемое устройство (CPU/GPU). В~логах появляется строка \verb|Model loaded: EfficientNet-B0|.
+
+Изменение списка классов (например, при~переобучении с~расширенной таксономией) требует, помимо весов:
+\begin{itemize}
+\item обновления \verb|ml-service/app/config.py: styles = [...]| в~алфавитном порядке;
+\item Flyway"=миграции с~\texttt{INSERT}/\texttt{DELETE} в~таблицу \texttt{styles};
+\item \verb|docker compose up -d --build backend| для~применения миграций.
+\end{itemize}
+
+\section{Масштабирование в production-окружении}
+\label{sec:production}
+
+При~переходе от~демонстрационной к~production"=инсталляции необходимы следующие изменения:
+
+\begin{enumerate}[label=\arabic{enumi})]
+\item \textbf{Секреты.} Значения \verb|JWT_SECRET|, паролей PostgreSQL и~MinIO выносятся из~\verb|docker-compose.yml| в~secrets"=хранилище CI/CD (HashiCorp Vault, AWS Secrets Manager) и~прокидываются через переменные окружения при~деплое.
+\item \textbf{TLS"-терминация.} Обратный прокси (nginx, Traefik) с~Let's Encrypt"=сертификатом перед backend'ом; HTTP"=трафик редиректится на~HTTPS. CORS"=политика обновляется со~списка \verb|localhost|"=origin'ов на~production"=домен.
+\item \textbf{Управляемая СУБД.} PostgreSQL переносится в~managed"=сервис (AWS RDS, Yandex Cloud Managed PostgreSQL); регулярные бэкапы, репликация, мониторинг "--- из~коробки. Backend меняет только endpoint в~\verb|application.yml|.
+\item \textbf{Объектное хранилище.} MinIO заменяется на~AWS~S3 или~совместимое managed"=решение; API"=совместимость SDK обеспечивает миграцию без~изменений в~Java"=коде.
+\item \textbf{Оркестрация.} Docker Compose заменяется на~Kubernetes. Для~каждого сервиса создаётся пара Deployment+Service; PostgreSQL/MinIO/RabbitMQ "--- StatefulSets с~PersistentVolumeClaim либо internal endpoints managed"=сервисов. Образы переиспользуются без~пересборки.
+\item \textbf{Мониторинг и алертинг.} Подключается Prometheus с~Spring Boot Actuator для~JVM"=метрик, micrometer"=экспортер для~ML"=сервиса. Grafana"=дашборды для~latency перцентилей, error rate, заполнения очереди. Alerting через Alertmanager на~аномальные метрики (медианное время классификации $>\,5$~с, более 5\% \texttt{FAILED}"=статусов и~т.\,д.).
+\item \textbf{Логирование.} Stdout"=логи всех контейнеров собираются Fluent~Bit и~отправляются в~ELK"=стек или~Loki. Заведена корреляция запросов через MDC"=поле \verb|X-Request-Id|, прокидываемое из~клиента через backend в~AMQP"=заголовки.
+\end{enumerate}
+
+\section{Информационная безопасность}
+\label{sec:security}
+
+В~настоящем разделе систематизированы меры безопасности, заложенные в~текущей реализации, и~рассмотрены оставшиеся уязвимости (как направления развития). Покрытие "--- ключевые категории OWASP Top~10.
+
+\subsection{Аутентификация и управление сессиями}
+
+Пароли пользователей хранятся в~виде BCrypt"=хешей со~strength~10. Алгоритм устойчив к~атакам по~словарю и~rainbow tables; параметр strength соответствует современным рекомендациям OWASP (2024). Аутентификация выполняется через JWT с~алгоритмом HS512 и~TTL~24~часа. Серверные сессии отсутствуют, что~устраняет уязвимости session fixation и~session hijacking.
+
+\subsection{Авторизация}
+
+Все запросы к~ресурсам пользователя выполняются с~фильтрацией по~\verb|user_id| на~уровне SQL"=запроса в~репозитории (метод \verb|findByIdAndUserId|). Это~закрывает Insecure Direct Object Reference (IDOR) и~Horizontal Privilege Escalation на~уровне кода, а~не~бизнес"=логики: пользователь не~может обратиться к~чужой фотографии даже зная её~идентификатор. При~неавторизованном запросе возвращается код~400 (<<not found>>), а~не~403, что~не~раскрывает факт существования чужого ресурса.
+
+\subsection{Валидация ввода}
+
+Все входные DTO покрыты Bean Validation (\verb|@NotBlank|, \verb|@Email|, \verb|@Size|). Загрузка изображений валидирована по~MIME"=типу (whitelist \verb|image/jpeg|, \verb|image/png|, \verb|image/webp|) и~размеру (\verb|spring.servlet.multipart.max-file-size: 25MB|).
+
+\subsection{SQL-инъекции и XSS}
+
+SQL"=инъекции исключены по~конструкции: все запросы выполняются через JPA с~параметризацией; ручная конкатенация SQL"=строк отсутствует. XSS"=уязвимости купированы стандартным эскейпом React (\verb|innerHTML| не~используется); presigned"=URL'ы и~метаданные изображений не~содержат HTML"=контента.
+
+\subsection{CSRF}
+
+CSRF"=защита отключена осознанно. Обоснование: API не~использует cookie"=сессий (только Authorization"=заголовок), что~исключает классический CSRF"=вектор. Браузер не~прикрепляет JWT к~сторонним запросам автоматически.
+
+\subsection{Транспортная безопасность}
+
+В~текущей реализации CORS настроен на~список \verb|localhost|"=origin'ов для~разработки. В~production добавляется TLS"=терминация через reverse proxy (см.~раздел~\ref{sec:production}).
+
+\subsection{Не реализовано (направления развития)}
+
+Честный перечень оставшихся уязвимостей, рекомендуемых к~устранению в~production"=деплое:
+
+\begin{itemize}
+\item \emph{Rate limiting} на~\verb|/api/auth/login| "--- защита от~brute"=force подбора пароля. Реализация через Bucket4j (Java) или~nginx \verb|limit_req|.
+\item \emph{Refresh"=токены и~revocation list} "--- возможность принудительного логаута без~ожидания истечения TTL (на~текущий момент 24~часа). Реализация через Redis"=blacklist с~TTL до~истечения исходного JWT.
+\item \emph{Audit log} "--- логирование критичных действий (вход, удаление фото, изменение профиля) в~отдельную таблицу для~постфактумного аудита.
+\item \emph{Антивирусная проверка} загруженных файлов через ClamAV"=sidecar; проверка изображений на~корректность заголовков (Pillow"=верификация) перед передачей в~MinIO.
+\item \emph{Content Security Policy headers} на~frontend; \texttt{X-Frame-Options}, \texttt{X-Content-Type-Options} на~backend"=ответах.
+\item \emph{Дифференциальная приватность} в~публичном embedding"=API (если~будет открыт): добавление контролируемого шума, чтобы исключить инверсионные атаки на~приватность пользователей.
+\end{itemize}
+
+\section{Направления дальнейшего развития}
+\label{sec:future_work}
+
+По~результатам проведённых экспериментов сформулированы шесть основных направлений развития системы и~модели.
+
+\paragraph{Ручная multi"=label разметка.} Главное методологическое улучшение "--- замена автоматически сгенерированной multi"=label разметки на~ручную аннотацию $\sim$\,1000~фотографий тремя"=пятью экспертными аннотаторами с~оценкой межрейтинговой согласованности (Cohen's $\kappa$, Krippendorff's $\alpha$). Это~устранит зависимость от~порогов score"=card и~даст истинную верхнюю границу качества multi"=label постановки.
+
+\paragraph{Переход на CLIP linear probe в production.} По~результатам раздела~\ref{sec:clip} CLIP linear probe превосходит EfficientNet"~B0 fine"=tune на~4{,}4~пп при~отсутствии переобучения. При~переходе на~GPU"=инференс (что~снимает ограничение размера модели и~времени инференса) рекомендуется внедрить CLIP как production"=модель, оставив EfficientNet"~B0 как fallback для~CPU"=окружений.
+
+\paragraph{Fine"=tune CLIP методом LoRA.} Следующий уровень "--- параметр"=эффективное дообучение CLIP через Low"=Rank Adaptation~\cite{Hu:2022}. Дообучение лишь $\sim$\,$0{,}1\%$ параметров (адаптеров вокруг attention"=слоёв) позволит сохранить компактность развёртывания и~получить дополнительное улучшение качества на~собственном датасете.
+
+\paragraph{Векторный поиск через pgvector.} Текущая реализация поиска похожих фотографий выполняется брутфорсом за~$O(N \cdot 1280)$ в~Java"=коде сервиса. Для~коллекций $>\,10\,000$ фотографий рекомендуется переход на~расширение PostgreSQL \texttt{pgvector} с~HNSW"=индексом: запрос становится $O(\log N)$ и~остаётся в~базе данных без~введения дополнительного сервиса (Qdrant, Weaviate).
+
+\paragraph{Stratified k-fold cross"=validation.} Для~повышения статистической надёжности per"=class метрик "--- замена единственного train/val split на~5"=fold stratified CV. Это~увеличит время обучения в~пять раз, но~даст доверительные интервалы для~каждой метрики и~снизит чувствительность к~случайному разбиению (особенно для~классов \texttt{dark} и~\texttt{minimalist}, см.~раздел~\ref{sec:robustness}).
+
+\paragraph{Persistent split с сохранением в Drive.} Урок из~истории v3~$\to$~v3.1 (см.~раздел~\ref{sec:reproduce}): split должен сохраняться вместе с~весами в~постоянное хранилище, а~не~в~эфемерную файловую систему среды обучения. Технически "--- сохранение списка путей train/val в~JSON"=файл рядом с~\verb|*.pth| в~Google~Drive или~S3"=бакете. Эта~мера предотвращает ситуацию data leakage, обнаруженную в~процессе настоящей работы.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% ЗАКЛЮЧЕНИЕ
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\chapternonum{Заключение}
+
+В~ходе настоящей выпускной квалификационной работы спроектирована и~реализована программная система автоматической классификации фотографий по~визуальному стилю на~основе подхода transfer learning, а~также проведён углублённый исследовательский анализ её~ключевого компонента "--- свёрточной нейронной сети.
+
+Поставленные в~разделе <<Введение>> задачи выполнены в~полном объёме:
+
+\begin{enumerate}[label=\arabic{enumi})]
+\item Проведён обзор современных методов классификации изображений, существующих программных продуктов"=аналогов и~технологического стека (гл.~\ref{ch:design}, разделы~\ref{sec:methods}, \ref{sec:competitors}, \ref{sec:stack}). Обоснован выбор архитектуры EfficientNet"~B0 для~production"=инсталляции и~CLIP ViT"~B/32 для~сравнительного эксперимента.
+\item Собран и~размечен датасет из~4691~фотографии в~восьми стилевых категориях; проведена MD5"=дедупликация и~балансировка до~распределения с~отношением max/min~$=1{,}2$ (гл.~\ref{ch:dataset}, разделы~\ref{sec:collection}, \ref{sec:preprocess}).
+\item Проведено три итерации дообучения модели EfficientNet"~B0 (v1, v2, v3) с~поэтапной коррекцией таксономии классов; в~ходе подготовки исследовательской части выявлено и~устранено data leakage в~оригинальном split'е, проведено повторное обучение на~воспроизводимом разделении (v3.1, разделы~\ref{sec:training}, \ref{sec:reproduce}). Финальная модель достигает val~accuracy$=0{,}694$, macro F1$=0{,}687$.
+\item Спроектирована и~реализована микросервисная архитектура из~пяти компонентов с~асинхронным взаимодействием через AMQP"=брокер (главы~\ref{ch:design}, \ref{ch:implementation}).
+\item Реализован REST"=API из~десяти эндпоинтов с~аутентификацией через JWT и~фильтрацией по~владельцу на~уровне SQL"=запросов (раздел~\ref{sec:api}).
+\item Реализовано клиентское веб"=приложение с~brutalist"=дизайном, masonry"=сеткой, цветовой фильтрацией и~поиском похожих фотографий через embedding"=сходство (раздел~\ref{sec:frontend}).
+\item Обеспечена контейнеризация всех компонентов и~автоматизированное развёртывание через Docker Compose (раздел~\ref{sec:infrastructure}). Настроена непрерывная интеграция через GitHub Actions; покрытие интеграционными тестами через Testcontainers составляет 11~тестов (раздел~\ref{sec:functional}).
+\item Проведены шесть исследовательских экспериментов (E1"-E6) с~углублённым анализом свойств обученной модели (разделы~\ref{sec:gradcam}"-\ref{sec:multilabel}); по~их~результатам получены новые методологические выводы.
+\item Сформулированы шесть направлений дальнейшего развития системы и~модели (раздел~\ref{sec:future_work}).
+\end{enumerate}
+
+\textbf{Главные исследовательские результаты.}
+
+\begin{itemize}
+\item Полученные качественные выводы "--- иерархия сложности классов, структура ошибок, оценка операциональной определимости отдельных категорий "--- \emph{устойчивы к~случайной перетасовке валидационной выборки}: изменения per"=class F1 между двумя независимыми обучениями не~превышают $9$ процентных пунктов, при~этом порядок классов и~топ"=путаницы сохраняются. Это~подтверждает, что~наблюдаемые закономерности отражают свойства задачи и~архитектуры, а~не~артефакты конкретного train/val разбиения (раздел~\ref{sec:robustness}).
+\item Введённая в~работе таксономия восьми классов \emph{операционально определима через статистики низкоуровневых признаков}: ANOVA по~пяти score"=card"=метрикам даёт $F$"=статистики 70"-501 при~$p \ll 0{,}001$, baseline"=классификатор на~ручных признаках достигает $48{,}9\%$ accuracy. Применение глубокой свёрточной сети добавляет $\sim$\,$20$ процентных пунктов сверх этого "--- что~оправдывает её~использование (раздел~\ref{sec:scorecard}).
+\item \emph{Foundation"=модель CLIP linear probe превосходит дообученную EfficientNet"~B0} на~$+4{,}4$~пп accuracy и~$+4{,}3$~пп macro F1 при~отсутствии GPU"=обучения и~использовании только sklearn"=логистической регрессии. Это~подтверждает превосходство представлений foundation"=моделей над~ImageNet"=весами для~стилевой задачи (раздел~\ref{sec:clip}).
+\item \emph{Переход на~multi"=label постановку задачи трансформирует ранее самый слабый класс} \texttt{monochrome} (F1$=0{,}545$ в~single"=label) в~самый сильный (F1$=0{,}934$, AP$=0{,}987$ в~multi"=label, $+38{,}9$~пп). Аналогичные значительные улучшения на~классах \texttt{dark} ($+28{,}3$~пп) и~\texttt{dramatic} ($+7{,}3$~пп) "--- эмпирическое подтверждение того, что~single"=label постановка была методологически некорректна для~композитных классов (раздел~\ref{sec:multilabel}).
+\item Метод Grad"~CAM подтверждает, что~модель опирается на~стилистически осмысленные области изображения (засветы для~\texttt{golden\_hour}, насыщенные пятна для~\texttt{neon}, равномерное распределение внимания для~\texttt{monochrome}), а~не~на~shortcut"=паттерны. Анализ <<уверенно неправильных>> предсказаний предоставляет качественное объяснение топ"=путаниц confusion matrix (раздел~\ref{sec:gradcam}).
+\end{itemize}
+
+Полученные результаты могут быть использованы в~системах курации цифровых фотоархивов, исследовательских прототипах в~области компьютерного зрения, образовательных программах по~глубокому обучению. Полный исходный код, обученные веса и~артефакты экспериментов открыты под~лицензией MIT.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% СПИСОК ЛИТЕРАТУРЫ
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\renewcommand{\bibname}{Список литературы}
+\begin{thebibliography}{99}
+
+\bibitem{Tan:2019}
+Tan~M., Le~Q.~V. EfficientNet: Rethinking Model Scaling for Convolutional Neural Networks~//~Proceedings of the 36th International Conference on Machine Learning (ICML). 2019. P.~6105--6114. arXiv:1905.11946.
+
+\bibitem{Krizhevsky:2012}
+Krizhevsky~A., Sutskever~I., Hinton~G.~E. ImageNet Classification with Deep Convolutional Neural Networks~//~Advances in Neural Information Processing Systems. 2012. Vol.~25. P.~1097--1105.
+
+\bibitem{He:2016}
+He~K., Zhang~X., Ren~S., Sun~J. Deep Residual Learning for Image Recognition~//~Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR). 2016. P.~770--778. arXiv:1512.03385.
+
+\bibitem{Howard:2019}
+Howard~A., Sandler~M., Chu~G. et~al. Searching for MobileNetV3~//~Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV). 2019. arXiv:1905.02244.
+
+\bibitem{Deng:2009}
+Deng~J., Dong~W., Socher~R. et~al. ImageNet: A Large-Scale Hierarchical Image Database~//~CVPR. 2009. P.~248--255.
+
+\bibitem{Selvaraju:2017}
+Selvaraju~R.~R., Cogswell~M., Das~A., Vedantam~R., Parikh~D., Batra~D. Grad-CAM: Visual Explanations from Deep Networks via Gradient-Based Localization~//~Proceedings of the IEEE International Conference on Computer Vision (ICCV). 2017. P.~618--626. arXiv:1610.02391.
+
+\bibitem{Guo:2017}
+Guo~C., Pleiss~G., Sun~Y., Weinberger~K.~Q. On Calibration of Modern Neural Networks~//~Proceedings of the 34th International Conference on Machine Learning (ICML). 2017. P.~1321--1330. arXiv:1706.04599.
+
+\bibitem{Radford:2021}
+Radford~A., Kim~J.~W., Hallacy~C. et~al. Learning Transferable Visual Models from Natural Language Supervision (CLIP)~//~Proceedings of the 38th International Conference on Machine Learning (ICML). 2021. P.~8748--8763. arXiv:2103.00020.
+
+\bibitem{Hu:2022}
+Hu~E.~J., Shen~Y., Wallis~P. et~al. LoRA: Low-Rank Adaptation of Large Language Models~//~International Conference on Learning Representations (ICLR). 2022. arXiv:2106.09685.
+
+\bibitem{vanderMaaten:2008}
+van~der~Maaten~L., Hinton~G.~E. Visualizing Data Using t-SNE~//~Journal of Machine Learning Research. 2008. Vol.~9. P.~2579--2605.
+
+\bibitem{McInnes:2018}
+McInnes~L., Healy~J., Melville~J. UMAP: Uniform Manifold Approximation and Projection for Dimension Reduction. 2018. arXiv:1802.03426.
+
+\bibitem{Murray:2012}
+Murray~N., Marchesotti~L., Perronnin~F. AVA: A Large-Scale Database for Aesthetic Visual Analysis~//~CVPR. 2012. P.~2408--2415.
+
+\bibitem{Karayev:2014}
+Karayev~S., Trentacoste~M., Han~H. et~al. Recognizing Image Style~//~Proceedings of the British Machine Vision Conference (BMVC). 2014. arXiv:1311.3715.
+
+\bibitem{Luan:2017}
+Luan~F., Paris~S., Shechtman~E., Bala~K. Deep Photo Style Transfer~//~Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR). 2017. arXiv:1703.07511.
+
+\bibitem{Kingma:2015}
+Kingma~D.~P., Ba~J. Adam: A Method for Stochastic Optimization~//~International Conference on Learning Representations (ICLR). 2015. arXiv:1412.6980.
+
+\bibitem{Loshchilov:2017}
+Loshchilov~I., Hutter~F. SGDR: Stochastic Gradient Descent with Warm Restarts~//~ICLR. 2017. arXiv:1608.03983.
+
+\bibitem{TorchDocs}
+PyTorch Documentation [Электронный ресурс]. URL: \url{https://pytorch.org/docs/stable/index.html} (дата обращения: 14.05.2026).
+
+\bibitem{TorchVisionDocs}
+\selectlanguage{english}\texttt{torchvision.models} Documentation [Электронный ресурс].
+URL: \url{https://pytorch.org/vision/stable/models.html} (дата обращения: 14.05.2026).\selectlanguage{russian}
+
+\bibitem{SpringDocs}
+Spring Boot 3 Documentation [Электронный ресурс]. URL: \url{https://docs.spring.io/spring-boot/} (дата обращения: 14.05.2026).
+
+\bibitem{FastAPIDocs}
+FastAPI Documentation [Электронный ресурс]. URL: \url{https://fastapi.tiangolo.com/} (дата обращения: 14.05.2026).
+
+\bibitem{RabbitMQDocs}
+AMQP 0-9-1 Protocol Specification [Электронный ресурс].
+URL: \url{https://www.rabbitmq.com/tutorials/amqp-concepts.html} (дата обращения: 14.05.2026).
+
+\bibitem{MinIODocs}
+MinIO Server Documentation [Электронный ресурс]. URL: \url{https://min.io/docs/minio/linux/index.html} (дата обращения: 14.05.2026).
+
+\bibitem{RFC7519}
+Jones~M., Bradley~J., Sakimura~N. JSON Web Token (JWT). RFC~7519, May~2015. URL: \url{https://datatracker.ietf.org/doc/html/rfc7519}.
+
+\bibitem{OWASPTop10}
+OWASP Top 10 -- 2021. The Ten Most Critical Web Application Security Risks [Электронный ресурс]. The Open Web Application Security Project. URL: \url{https://owasp.org/Top10/} (дата обращения: 14.05.2026).
+
+\bibitem{UnsplashAPI}
+Unsplash Developer Documentation [Электронный ресурс]. URL: \url{https://unsplash.com/documentation} (дата обращения: 14.05.2026).
+
+\bibitem{PexelsAPI}
+Pexels API Documentation [Электронный ресурс]. URL: \url{https://www.pexels.com/api/documentation/} (дата обращения: 14.05.2026).
+
+\bibitem{ScikitLearn}
+Pedregosa~F., Varoquaux~G., Gramfort~A. et~al. Scikit-learn: Machine Learning in Python~//~Journal of Machine Learning Research. 2011. Vol.~12. P.~2825--2830.
+
+\bibitem{OpenCLIP}
+Ilharco~G., Wortsman~M., Wightman~R. et~al. OpenCLIP. 2021. URL: \url{https://github.com/mlfoundations/open_clip}.
+
+\bibitem{GOST732}
+ГОСТ~7.32-2017. Система стандартов по~информации, библиотечному и~издательскому делу. Отчёт о~научно-исследовательской работе. Структура и~правила оформления. Введ. 2018-07-01. М.: Стандартинформ, 2017. 32~с.
+
+\bibitem{GOSTR705}
+ГОСТ~Р~7.0.5-2008. Система стандартов по~информации, библиотечному и~издательскому делу. Библиографическая ссылка. Общие требования и~правила составления. Введ. 2009-01-01. М.: Стандартинформ, 2008. 19~с.
+
+\end{thebibliography}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% ПРИЛОЖЕНИЯ
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\appendix
+
+\lstset{
+  tabsize=4,
+  formfeed=\newpage,
+  extendedchars=true,
+  basicstyle=\ttfamily\footnotesize,
+  commentstyle=\rmfamily\itshape,
+  stringstyle=\slshape,
+  numbers=left,
+  numbersep=1em,
+  stepnumber=1,
+  numberstyle=\footnotesize,
+}
+
+\chapter{Структура программного комплекса}
+\label{app:structure}
+
+Каталог репозитория верхнего уровня (см.~также~раздел~\ref{sec:structure}):
+
+\begin{lstlisting}[basicstyle=\ttfamily\small,frame=single]
+photo-style-classifier/
+|-- docker-compose.yml          инфраструктурная конфигурация
+|-- README.md                   обзор проекта, инструкция запуска
+|-- backend/                    Spring Boot, Java 17
+|   |-- Dockerfile
+|   |-- pom.xml                 зависимости и build
+|   `-- src/                    исходный код, миграции, тесты
+|-- ml-service/                 FastAPI, Python 3.11, PyTorch
+|   |-- Dockerfile
+|   |-- requirements.txt
+|   |-- weights/                .pth-файлы обученных моделей
+|   `-- app/                    модули classifier, consumer, minio
+|-- frontend/                   React 18, Vite 5
+|   |-- package.json
+|   `-- src/                    компоненты, маршруты, стили
+|-- training/                   скрипты обучения и экспериментов
+|   |-- train.py                fine-tune EfficientNet/ResNet
+|   |-- make_split.py           воспроизводимое разделение
+|   |-- gradcam_viz.py          E1: Grad-CAM
+|   |-- embed_viz.py            E2: t-SNE/UMAP + метрики
+|   |-- score_card_class.py     E3: ручные признаки + baseline
+|   |-- calibration.py          E4: temperature scaling
+|   |-- clip_probe.py           E5: CLIP linear probe + zero-shot
+|   `-- train_multilabel.py     E6: multi-label fine-tune
+|-- docs/                       REPORT.md, training-metrics.md,
+|                               ml-experiments-log.md, figures/,
+|                               diploma-latex/ (этот файл)
+`-- .github/workflows/          CI: build, unit, integration tests
+\end{lstlisting}
+
+Полный листинг всех директорий содержит порядка 250 файлов и~занимает $\sim$\,15~МБ исходного кода (без~учёта обученных моделей и~датасета). Исходный код размещён в~публичном репозитории на~GitHub под~лицензией MIT.
+
+\chapter{Реализация классификатора}
+\label{app:classifier}
+
+Ниже приведён ключевой фрагмент Python"=кода ML"=сервиса "--- метод инференса с~извлечением эмбеддинга и~softmax"=вероятностей за~один прямой проход.
+
+\begin{lstlisting}[language=Python,basicstyle=\ttfamily\footnotesize,frame=single,caption={Метод \texttt{\_nn\_inference} класса \texttt{StyleClassifier}},label=lst:nn_inference]
+def _nn_inference(self, img: Image.Image
+                  ) -> Tuple[List[float], List[float]]:
+    """Прогон через EfficientNet с извлечением эмбеддинга
+    предпоследнего слоя.
+
+    Возвращает (softmax-вероятности по классам,
+                1280-мерный embedding).
+    """
+    with torch.no_grad():
+        x = self.transform(img).unsqueeze(0).to(self.device)
+
+        # Расщепляем forward на backbone + head, чтобы
+        # извлечь pooled features.
+        # EfficientNet: features -> avgpool -> classifier
+        feats = self.model.features(x)
+        pooled = self.model.avgpool(feats)
+        pooled_flat = torch.flatten(pooled, 1)        # [1, 1280]
+        logits = self.model.classifier(pooled_flat)   # [1, C]
+
+        probs = torch.softmax(logits, dim=1).squeeze(0).cpu().numpy()
+        embedding = pooled_flat.squeeze(0).cpu().numpy()
+
+    return [float(p) for p in probs], [float(v) for v in embedding]
+\end{lstlisting}
+
+\chapter{Реализация процедуры дообучения}
+\label{app:training}
+
+Ниже приведён фрагмент основного цикла обучения "--- двухфазный fine"=tune с~WeightedRandomSampler, label smoothing и~cosine annealing.
+
+\begin{lstlisting}[language=Python,basicstyle=\ttfamily\footnotesize,frame=single,caption={Двухфазный цикл обучения (training/train.py)},label=lst:train_loop]
+# Phase 1: только голова
+for p_ in backbone_params:
+    p_.requires_grad = False
+optimizer = optim.AdamW(head_params, lr=args.lr_head,
+                        weight_decay=args.weight_decay)
+
+for ep in range(1, args.head_epochs + 1):
+    tr_loss, _ = run_epoch(model, train_loader, criterion,
+                           optimizer, device, scaler, train=True)
+    vl_loss, vl_acc = run_epoch(model, val_loader, criterion,
+                                optimizer, device, scaler, train=False)
+
+# Phase 2: full fine-tune с косинусным расписанием
+for p_ in backbone_params:
+    p_.requires_grad = True
+optimizer = optim.AdamW([
+    {"params": backbone_params, "lr": args.lr_backbone},
+    {"params": head_params, "lr": args.lr_head},
+], weight_decay=args.weight_decay)
+n_full = args.epochs - args.head_epochs
+scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=n_full)
+
+best_val_acc, no_improve = 0.0, 0
+for ep in range(1, n_full + 1):
+    tr_loss, _ = run_epoch(model, train_loader, criterion,
+                           optimizer, device, scaler,
+                           train=True, mixup_alpha=args.mixup_alpha)
+    vl_loss, vl_acc = run_epoch(model, val_loader, criterion,
+                                optimizer, device, scaler, train=False)
+    scheduler.step()
+    if vl_acc > best_val_acc:
+        best_val_acc, no_improve = vl_acc, 0
+        torch.save(model.state_dict(),
+                   out_dir / f"{args.arch}_styles.pth")
+    else:
+        no_improve += 1
+        if no_improve >= args.patience:
+            break  # Early stopping
+\end{lstlisting}
+
+\chapter{Реализация Grad-CAM}
+\label{app:gradcam}
+
+Самостоятельная реализация Grad"~CAM через PyTorch hooks (без~внешних зависимостей):
+
+\begin{lstlisting}[language=Python,basicstyle=\ttfamily\footnotesize,frame=single,caption={Класс \texttt{GradCAM} (training/gradcam\_viz.py)},label=lst:gradcam]
+class GradCAM:
+    """Grad-CAM на произвольном свёрточном слое."""
+
+    def __init__(self, model: nn.Module, target_layer: nn.Module):
+        self.model = model
+        self.activations: torch.Tensor | None = None
+        self.gradients: torch.Tensor | None = None
+        target_layer.register_forward_hook(self._save_activation)
+        target_layer.register_full_backward_hook(self._save_gradient)
+
+    def _save_activation(self, module, inp, out):
+        self.activations = out.detach()
+
+    def _save_gradient(self, module, grad_in, grad_out):
+        self.gradients = grad_out[0].detach()
+
+    def __call__(self, x: torch.Tensor, class_idx: int) -> np.ndarray:
+        self.model.zero_grad()
+        logits = self.model(x)
+        score = logits[0, class_idx]
+        score.backward()
+
+        # Глобальное среднее градиентов по пространственным осям
+        # даёт веса каналов.
+        weights = self.gradients.mean(dim=(2, 3), keepdim=True)
+        cam = (weights * self.activations).sum(dim=1, keepdim=True)
+        cam = F.relu(cam)
+        cam = F.interpolate(cam, size=x.shape[-2:],
+                            mode="bilinear", align_corners=False)
+        cam = cam.squeeze().cpu().numpy()
+        if cam.max() > 0:
+            cam = (cam - cam.min()) / (cam.max() - cam.min() + 1e-8)
+        return cam
+\end{lstlisting}
+
 \end{document}
