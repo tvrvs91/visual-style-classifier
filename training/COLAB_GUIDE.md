@@ -106,17 +106,17 @@ MyDrive/
 
 **Способ 1 — прямая ссылка** (после `git push`):
 ```
-https://colab.research.google.com/github/tvrvs91/visual-style-classifier/blob/claude/sleepy-gould-93f13f/training/colab_runbook.ipynb
+https://colab.research.google.com/github/tvrvs91/visual-style-classifier/blob/ml-deep-dive/training/colab_runbook.ipynb
 ```
 
 **Способ 2 — через GitHub.com**:
-GitHub → ветка `claude/sleepy-gould-93f13f` → `training/colab_runbook.ipynb` →
+GitHub → ветка `ml-deep-dive` → `training/colab_runbook.ipynb` →
 кнопка `Open in Colab` (если установил расширение) или скачать и
 загрузить в `colab.research.google.com`.
 
 **Способ 3 — File → Open notebook → GitHub** в Colab:
 - репозиторий: `tvrvs91/visual-style-classifier`
-- ветка: `claude/sleepy-gould-93f13f`
+- ветка: `ml-deep-dive`
 - путь: `training/colab_runbook.ipynb`
 
 ---

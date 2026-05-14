@@ -2,9 +2,6 @@
 .env
 .env.local
 
-# Local agent/editor settings
-.claude/
-
 # Java / Maven
 target/
 *.class
@@ -13,13 +10,16 @@ target/
 .mvn/
 !.mvn/wrapper/maven-wrapper.jar
 
-# IDE
+# IDE / editor settings
 .idea/
 *.iml
 .vscode/
 .settings/
 .project
 .classpath
+.claude/
+.aider*
+.cursor/
 
 # Python
 __pycache__/
