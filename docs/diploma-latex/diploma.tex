@@ -293,4 +293,416 @@ Stateless"=архитектура backend'а делает возможным г�
 
 Выбран \textbf{Docker~Compose}. Для~дипломной демонстрации Kubernetes избыточен; одной командой \texttt{docker compose up} поднимаются пять контейнеров с~корректными зависимостями старта и~общей сетью. Перенос на~Kubernetes "--- добавление пяти манифестов Deployment+Service на~основе существующих Dockerfile'ов; образы переиспользуются.
 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% ГЛАВА 2
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\chapter{Проектирование системы}
+\label{ch:design}
+
+\section{Архитектура системы}
+\label{sec:architecture}
+
+Система спроектирована по~микросервисному принципу. Выделено пять независимых компонентов с~чёткими границами ответственности (табл.~\ref{tab:components}). Взаимодействие выполняется по~двум типам каналов: синхронному (HTTP+JSON между клиентом и~backend'ом, между backend'ом и~хранилищами) и~асинхронному (AMQP"=сообщения между backend'ом и~ML"=сервисом через брокер RabbitMQ).
+
+\begin{table}[!ht]
+\caption{Компоненты системы и их назначение}
+\label{tab:components}
+\centering
+\begin{tabular}{p{3.5cm}p{2cm}p{8cm}}
+\toprule
+\textbf{Компонент} & \textbf{Платформа} & \textbf{Назначение} \\
+\midrule
+React SPA            & Vite + браузер   & Регистрация, загрузка фотографий, отображение галереи, модальное окно с~анализом стилей и~похожими фотографиями \\
+Spring Backend       & JVM (Java~17)    & REST"=API, авторизация (JWT), управление учётными записями, оркестрация задач классификации, поиск по~стилю и~поиск похожих изображений по~эмбеддингу \\
+FastAPI ML"=сервис   & Python~3.11      & Загрузка обученной модели, инференс на~изображениях из~MinIO, извлечение эмбеддингов и~палитры, публикация результатов в~очередь \\
+PostgreSQL~16        & --                & Хранение пользователей, метаданных фотографий, связей фотография"=стиль с~уверенностями, эмбеддингов и~score"=card"=метрик \\
+MinIO                & --                & Объектное хранилище загруженных изображений; backend публикует presigned"=URL"ы для~отображения в~клиенте \\
+RabbitMQ             & --                & Брокер для~асинхронной передачи задач классификации и~результатов между Spring и~FastAPI \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Концептуально архитектура реализует трёхуровневое разделение: уровень представления (клиент), уровень приложения (backend и~ML"=сервис) и~уровень хранения (PostgreSQL, MinIO, RabbitMQ как stateful"=компоненты инфраструктуры). Все пять компонентов запускаются в~отдельных контейнерах Docker; их~жизненный цикл управляется через Docker Compose с~зависимостями старта и~healthcheck'ами.
+
+\section{Поток данных при классификации фотографии}
+\label{sec:dataflow}
+
+Полный жизненный цикл одной загруженной фотографии включает следующие шаги:
+
+\begin{enumerate}[label=\arabic{enumi})]
+\item Пользователь загружает файл изображения через React"=форму запросом \verb|POST /api/photos| с~Content"~Type \verb|multipart/form-data| и~заголовком \verb|Authorization: Bearer <JWT>|.
+\item Spring backend выполняет валидацию: проверка подписи JWT, проверка MIME"=типа (whitelist \verb|image/jpeg|, \verb|image/png|, \verb|image/webp|), проверка размера (лимит~25~МБ через \texttt{spring.servlet.multipart}).
+\item Файл сохраняется в~MinIO под ключом \verb|user-{userId}/{uuid}.{ext}|. Префикс с~идентификатором пользователя предотвращает горизонтальную утечку privileges, UUID гарантирует уникальность.
+\item Создаётся запись в~таблице \texttt{photos} со~статусом \texttt{PENDING}.
+\item Backend публикует сообщение в~exchange \verb|classification.exchange| с~routing key \verb|classification.task|, содержащее $\{photoId, s3Key, bucket\}$.
+\item ML"=сервис получает сообщение из~очереди \verb|classification.tasks|, скачивает файл из~MinIO по~$(bucket, s3Key)$, выполняет препроцессинг (resize до~256, центрированный crop до~$224\times 224$, нормализация ImageNet"=статистиками) и~прямой проход через сеть.
+\item Выход сети разделяется на~два потока: top"~3 стилевых ярлыка с~постмягкомаксными вероятностями и~1280"=мерный embedding с~предклассифицирующего слоя.
+\item Результат, обогащённый палитрой (5 цветов через k"~means на~уменьшенной копии) и~score"~card"=метриками (5~детерминированных характеристик), публикуется в~очередь \verb|classification.results|.
+\item Spring backend (consumer) получает результат и~в~рамках одной транзакции: удаляет прежние записи \texttt{photo\_styles} по~$photoId$, вставляет новые, сохраняет embedding в~\texttt{photo\_features}, переводит \verb|photos.status| в~\texttt{DONE}.
+\item Клиент, выполняющий периодический опрос \verb|GET /api/photos| каждые три~секунды при~наличии \texttt{PENDING}"=фотографий, получает обновлённое состояние и~перерисовывает галерею.
+\end{enumerate}
+
+Полный цикл от~момента нажатия кнопки загрузки до~отображения тегов в~галерее занимает порядка $2$"=$3$ секунд для~файла размером 2~МБ при~CPU"=инференсе.
+
+\section{Модель данных}
+\label{sec:datamodel}
+
+Реляционная схема включает пять основных сущностей. Их~отношения отражены в~листинге~\ref{lst:schema}.
+
+\begin{lstlisting}[caption={Схема реляционной модели данных},label=lst:schema,basicstyle=\ttfamily\small,frame=single]
+users        (id PK, email UNIQUE, password_hash, created_at)
+styles       (id PK, name UNIQUE)
+photos       (id PK, user_id FK->users, s3_key UNIQUE,
+              uploaded_at, status ENUM('PENDING','DONE','FAILED'))
+photo_styles (photo_id FK->photos, style_id FK->styles,
+              confidence DECIMAL(5,4),
+              PRIMARY KEY (photo_id, style_id))
+photo_features (photo_id PK/FK->photos, embedding TEXT,
+                palette JSON, scores JSON, brightness REAL,
+                contrast REAL, saturation REAL,
+                warmth REAL, sharpness REAL,
+                dominant_hex TEXT)
+\end{lstlisting}
+
+Жизненный цикл фотографии описывается конечным автоматом с~тремя состояниями: \texttt{PENDING} (после загрузки, в~очереди), \texttt{DONE} (успешная классификация), \texttt{FAILED} (ошибка в~ML"=сервисе либо таймаут). Переходы возможны только из~\texttt{PENDING} в~два других состояния; обратные и~боковые переходы не~допускаются.
+
+Справочник \texttt{styles} инициализируется при~старте через миграции Flyway (\texttt{V1\_\_init.sql}, \texttt{V2}, ..., \texttt{V6\_\_taxonomy\_v3\_8\_classes.sql}). Хранение в~таблице, а~не~в~enum, выбрано для~поддержки нескольких итераций таксономии без~изменения схемы Java"=кода.
+
+Поле \verb|photo_features.embedding| хранит 1280"=мерный вектор в~виде JSON"=строки. При~планируемом масштабировании за~$\sim$\,100\,000~изображений предусмотрен переход на~расширение \texttt{pgvector}, при~котором тип столбца меняется на~\texttt{vector(1280)}, а~поиск ближайших соседей выполняется через индекс HNSW. Текущая реализация выполняет поиск брутфорсно в~Java"=коде сервиса \texttt{SimilarityService} (cosine similarity, $O(N \cdot 1280)$); для~коллекций до~$\sim$\,10\,000~изображений время отклика остаётся менее~50~мс.
+
+\section{REST API}
+\label{sec:api}
+
+API спроектирован по~принципам REST с~JSON"=форматом сериализации. Эндпоинты сгруппированы по~четырём смысловым семействам: аутентификация, управление фотографиями, поиск и~справочные данные (табл.~\ref{tab:endpoints}).
+
+\begin{table}[!ht]
+\caption{Эндпоинты REST"-API}
+\label{tab:endpoints}
+\centering
+\begin{tabular}{lp{5cm}p{4cm}c}
+\toprule
+\textbf{Метод} & \textbf{Путь} & \textbf{Описание} & \textbf{JWT} \\
+\midrule
+POST   & \texttt{/api/auth/register}     & Регистрация пользователя   & нет \\
+POST   & \texttt{/api/auth/login}        & Аутентификация             & нет \\
+POST   & \texttt{/api/photos}            & Загрузка фото (multipart)  & да  \\
+GET    & \texttt{/api/photos}            & Список фото с~пагинацией   & да  \\
+GET    & \texttt{/api/photos/\{id\}}     & Одна фотография            & да  \\
+DELETE & \texttt{/api/photos/\{id\}}     & Удаление                   & да  \\
+GET    & \texttt{/api/photos/\{id\}/similar} & Похожие по~embedding   & да  \\
+GET    & \texttt{/api/photos/search}     & Поиск по~стилю/цвету       & да  \\
+GET    & \texttt{/api/styles}            & Список стилей              & да  \\
+GET    & \texttt{/api/stats/me}          & Статистика пользователя    & да  \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Все ответы возвращаются в~JSON. Унифицированная структура ошибок реализована через \texttt{ApiError}, содержащий поля \verb|timestamp|, \verb|status|, \verb|error|, \verb|message|, \verb|path|. Глобальный обработчик \texttt{GlobalExceptionHandler} перехватывает типовые исключения и~отображает их~в~HTTP"=статусы: \texttt{MethodArgumentNotValidException}~$\to$~400, \texttt{BadCredentialsException}~$\to$~401, \texttt{IllegalStateException}~$\to$~409, \texttt{IllegalArgumentException}~$\to$~400. Доступ без~корректного JWT отдаёт~401 (через явно настроенный \texttt{HttpStatusEntryPoint}).
+
+\section{Аутентификация и авторизация}
+\label{sec:auth}
+
+Применена JWT"=аутентификация без~серверных сессий. Пароли хранятся в~виде BCrypt"=хешей со~strength~10. При~успешной аутентификации сервер генерирует токен с~алгоритмом подписи HS512, сроком жизни 24~часа, содержащий \texttt{sub}~=~email пользователя. Секретный ключ передаётся через переменную окружения \verb|JWT_SECRET|; в~репозитории \texttt{application.yml} содержит заведомо невалидное значение \verb|change-me-in-prod|.
+
+Каждый последующий запрос несёт заголовок \verb|Authorization: Bearer <token>|. Фильтр \texttt{JwtAuthFilter}, размещённый в~цепочке перед \texttt{UsernamePasswordAuthenticationFilter}, извлекает токен, проверяет подпись и~срок действия, помещает \texttt{UserDetails} в~\texttt{SecurityContext}. Все запросы к~ресурсам пользователя фильтруются по~\verb|user_id| на~уровне SQL"=запроса в~репозитории (\verb|findByIdAndUserId|), что~исключает horizontal privilege escalation на~уровне кода, а~не~только бизнес"=логики.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% ГЛАВА 3
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\chapter{Реализация}
+\label{ch:implementation}
+
+\section{Структура проекта}
+\label{sec:structure}
+
+Репозиторий организован в~корневые каталоги по~компонентам системы (листинг~\ref{lst:tree}). Каждый компонент содержит собственный Dockerfile и~конфигурацию сборки. Корневой \verb|docker-compose.yml| описывает их~совместный запуск.
+
+\begin{lstlisting}[caption={Структура корневого каталога репозитория},label=lst:tree,basicstyle=\ttfamily\small,frame=single]
+photo-style-classifier/
+|-- docker-compose.yml
+|-- README.md
+|-- backend/             Java/Spring Boot 3
+|   |-- Dockerfile
+|   |-- pom.xml
+|   `-- src/main/java/com/diploma/psc/
+|       |-- auth/         JWT, контроллер, сервис, фильтр
+|       |-- user/         User + репозиторий
+|       |-- photo/        Photo, MinioService, SimilarityService
+|       |-- style/        Style, PhotoStyle, репозитории
+|       |-- classification/ Producer, Consumer, DTO
+|       |-- stats/        StatsController, StatsResponse
+|       |-- config/       Security, Minio, RabbitMQ
+|       `-- common/       GlobalExceptionHandler
+|-- ml-service/          Python/FastAPI
+|   |-- Dockerfile
+|   |-- requirements.txt
+|   |-- weights/         .pth с обученной моделью
+|   `-- app/
+|       |-- config.py    pydantic-settings
+|       |-- classifier.py StyleClassifier, EfficientNet-B0
+|       |-- minio_client.py boto3-загрузчик
+|       |-- rabbitmq_consumer.py pika-worker
+|       `-- main.py      FastAPI app + handle_task
+|-- frontend/            React + Vite
+|   |-- package.json
+|   |-- vite.config.js
+|   `-- src/
+|       |-- App.jsx, main.jsx, AuthContext.jsx, api.js
+|       |-- routes/       Login, Register, Gallery, Upload, Profile
+|       `-- components/   PhotoCell, PhotoModal, ColorFilterBar
+|-- training/            Скрипты обучения и экспериментов
+|-- docs/                REPORT.md, diagrams.md, training-metrics.md
+`-- .github/workflows/   CI pipelines
+\end{lstlisting}
+
+\section{Backend на Spring Boot}
+\label{sec:backend}
+
+\subsection{Управление схемой через Flyway и режим JPA validate}
+
+Схема создаётся и~изменяется только миграциями Flyway, хранимыми в~\verb|backend/src/main/resources/db/migration/|. Hibernate настроен в~режиме \verb|ddl-auto: validate|: при~старте проверяется соответствие сущностей таблицам и~приложение падает при~рассогласовании. Это исключает ситуации тихого изменения production"=схемы при~деплое и~делает миграции единственным источником правды о~структуре БД.
+
+\subsection{Двойной клиент MinIO}
+
+В~конфигурации определены два бина \texttt{MinioClient} с~разными endpoint'ами. Основной \texttt{minioClient} использует адрес \verb|http://minio:9000| (имя сервиса в~Docker"=сети) и~применяется для~операций \verb|putObject|, \verb|bucketExists|, \verb|makeBucket|, выполняемых внутри Docker"=сети. Дополнительный \texttt{minioPresignClient} использует адрес \verb|http://localhost:9000| с~фиксированным регионом \verb|us-east-1| и~применяется только для~генерации presigned"=URL'ов, отдаваемых клиенту: браузер не~способен разрешить имя \verb|minio:9000|, поэтому URL должен содержать хост, доступный с~host"=машины.
+
+Фиксация региона в~presign"=клиенте критически важна: без~неё SDK при~первом вызове выполняет HTTP"=запрос \verb|GET ?location| к~бакету, что~приводит к~попытке обращения к~\verb|localhost:9000| из~контейнера и~ошибке.
+
+\subsection{Асинхронная публикация через RabbitTemplate}
+
+Exchange типа \verb|direct| с~routing key для~маршрутизации задач классификации. Сообщения сериализуются через \texttt{Jackson2JsonMessageConverter}, что~позволяет Python"=консьюмеру работать с~ними как с~обычным JSON без~необходимости поддержки сериализаторов Java.
+
+Consumer на~стороне backend'а получает результаты классификации и~выполняет атомарное обновление: сначала удаляются все строки \texttt{photo\_styles} по~$photoId$ (вызов \verb|flush()| для~гарантии порядка), затем вставляются новые. Это защищает от~некорректных состояний при~повторной обработке (retry), когда часть старых тегов могла бы остаться в~БД.
+
+\subsection{Обработка ошибок}
+
+\texttt{GlobalExceptionHandler} с~аннотацией \verb|@RestControllerAdvice| унифицирует ответы при~неуспешных запросах. Это позволяет фронтенду полагаться на~единый формат и~централизовать обработку ошибок в~одном axios"=interceptor'е.
+
+\section{ML-сервис на FastAPI}
+\label{sec:mlservice}
+
+\subsection{Построение модели}
+
+Архитектура модели создаётся вызовом \verb|efficientnet_b0(weights=None)| с~последующей заменой классифицирующего слоя:
+
+\begin{lstlisting}[language=Python,basicstyle=\ttfamily\small,frame=single,caption={Создание модели и подключение весов},label=lst:model]
+from torchvision.models import efficientnet_b0
+model = efficientnet_b0(weights=None)
+in_features = model.classifier[1].in_features  # 1280
+model.classifier[1] = nn.Linear(in_features, len(self.styles))
+\end{lstlisting}
+
+При~наличии файла \verb|weights/efficientnet_b0_styles.pth| в~него загружается \texttt{state\_dict} дообученной модели. Файлы весов исключены из~репозитория (\verb|.gitignore|): они являются крупными бинарниками с~независимым жизненным циклом и~хранятся в~Google~Drive автора либо передаются вручную при~деплое.
+
+При~отсутствии файла весов сервис стартует в~\emph{эвристическом режиме}: вычисляет статистики изображения (средняя яркость, контраст, насыщенность, теплота, динамический диапазон) и~маппит их~в~вероятности классов через набор взвешенных правил. Этот режим предназначен для~end"=to"=end отладки всей системы при~отсутствии обученной модели и~не~является заменой обученной модели.
+
+\subsection{Извлечение эмбеддингов и сплит forward-прохода}
+
+Ключевая особенность реализации "--- расщепление прямого прохода на~два этапа для~извлечения эмбеддингов вместе со~стилевыми вероятностями:
+
+\begin{lstlisting}[language=Python,basicstyle=\ttfamily\small,frame=single,caption={Расщеплённый forward-проход},label=lst:fwd]
+with torch.no_grad():
+    x = self.transform(img).unsqueeze(0).to(self.device)
+    feats = self.model.features(x)
+    pooled = self.model.avgpool(feats)
+    pooled_flat = torch.flatten(pooled, 1)        # [1, 1280] - эмбеддинг
+    logits = self.model.classifier(pooled_flat)   # [1, num_classes]
+    probs = torch.softmax(logits, dim=1)
+    embedding = pooled_flat.squeeze(0).cpu().numpy()
+\end{lstlisting}
+
+Эмбеддинг возвращается из~предклассифицирующего слоя (выход global average pooling), классифицирующая голова применяется отдельно. Это позволяет получить оба выхода за~один проход и~опубликовать эмбеддинг вместе с~результатом классификации, не~требуя повторного forward'а.
+
+\subsection{Препроцессинг и аугментации}
+
+Препроцессинг детерминированный, без~аугментаций: resize до~$224\times 224$ (точно, без~CenterCrop, чтобы сохранить пропорции), приведение к~\texttt{torch.float32} в~диапазоне $[0;1]$, нормализация ImageNet"=статистиками ($\mu = [0{,}485; 0{,}456; 0{,}406]$, $\sigma = [0{,}229; 0{,}224; 0{,}225]$). Идентичный препроцессинг применяется и~при~обучении (см.~раздел~\ref{sec:training}), чтобы избежать train/serve skew.
+
+\subsection{Цветовая палитра и score-card}
+
+Помимо стилевой классификации, ML"=сервис извлекает два дополнительных слоя описания изображения. Оба вычисляются детерминированно из~пиксельных статистик, без~участия нейросети.
+
+\paragraph{Палитра цветов} "--- 5 доминирующих цветов в~RGB через \texttt{sklearn.cluster.KMeans} (\verb|n_clusters=5|, \verb|n_init=3|) на~уменьшенной до~$100\times 100$ копии изображения. Кластеры сортируются по~размеру (наиболее частый цвет первым) и~возвращаются как hex"=строки. Доминирующий hex"=цвет дополнительно сохраняется в~\verb|photo_features.dominant_hex| для~быстрой фильтрации галереи по~цвету.
+
+\paragraph{Score-card} "--- 5 количественных метрик в~диапазоне $[0;1]$:
+
+\begin{itemize}
+\item \texttt{brightness} "--- средняя perceptual luma $Y' = 0{,}299 R + 0{,}587 G + 0{,}114 B$;
+\item \texttt{contrast} "--- стандартное отклонение luma, удвоенное и~ограниченное на~$1{,}0$;
+\item \texttt{saturation} "--- среднее значение нормированной формулы $(max - min) / max$ в~RGB;
+\item \texttt{warmth} "--- нормализованная разность $R - B$ в~диапазон $[0;1]$;
+\item \texttt{sharpness} "--- средняя абсолютная величина градиента luma, как proxy для~резкости.
+\end{itemize}
+
+Эти метрики играют двойную роль. На~уровне UI они дополняют стилевые ярлыки описательной информацией. На~уровне методологии они позволяют формально определить классы через измеримые статистики (см.~раздел~\ref{sec:scorecard}) и~использовать как baseline"=признаки для~оценки вклада глубоких представлений.
+
+\subsection{AMQP-консьюмер в фоновом потоке}
+
+Библиотека \texttt{pika} использует блокирующее соединение, что~несовместимо с~asyncio. Решение "--- запуск consumer'а в~отдельном \texttt{threading.Thread} с~обработкой \texttt{AMQPConnectionError} (пауза 5~с, новая попытка). FastAPI"=приложение стартует независимо и~предоставляет endpoint \verb|/health| для~диагностики (возвращает имя модели, путь к~весам, имя устройства, список стилей).
+
+Префетч очереди ограничен двумя задачами через \verb|channel.basic_qos(prefetch_count=2)|: инференс одного изображения требует $\sim$\,500~МБ peak RSS, и~накопление задач выше двух привело~бы к~OOM при~всплеске загрузок.
+
+\section{Клиентское приложение на React}
+\label{sec:frontend}
+
+\subsection{Дизайн}
+
+Применён тёмный brutalist"=стиль галереи: фон \verb|#111|, поверхности \verb|#141414|, акцентный цвет \verb|#c0392b|, отсутствие скруглений, типографика \emph{uppercase} с~расширенным трекингом, мелкий кегль. Цель оформления "--- не~отвлекать от~содержимого (фотографий) и~подчеркнуть утилитарный характер инструмента.
+
+\subsection{Masonry-сетка}
+
+Галерея организована в~детерминированную masonry"=сетку через CSS~Grid: \verb|grid-template-columns: repeat(6, 1fr)|, \verb|grid-auto-rows: 180px|, \verb|grid-auto-flow: dense|. Каждой ячейке на~основе её~индекса присваивается класс из~детерминированного паттерна (\verb|w2|, \verb|h2|, \verb|w2 h2|), что~создаёт визуально неоднородный ритм без~использования случайности. Опция \verb|dense| гарантирует, что~крупные ячейки не~оставляют пустот.
+
+\subsection{Реактивный опрос статуса}
+
+После загрузки фотография имеет статус \texttt{PENDING}. Клиент в~\verb|useEffect| выполняет повторный запрос \verb|GET /api/photos| каждые три~секунды, пока в~ответе присутствует хотя~бы одна \texttt{PENDING}"=фотография. Это простой trade"=off против WebSocket/SSE: нагрузка на~сервер минимальна, код "--- несколько строк в~React"=компоненте, не~требует дополнительной инфраструктуры на~бэкенде.
+
+\subsection{Axios-interceptor для централизованной обработки 401/403}
+
+При~получении кодов 401 или~403 от~любого endpoint'а взаимодействия токен очищается из~\verb|localStorage|, и~пользователь перенаправляется на~маршрут \verb|/login|. Это унифицирует обработку истечения JWT без~дублирования логики в~каждом компоненте, обращающемся к~API.
+
+\subsection{Модальное окно с похожими фотографиями}
+
+При~клике на~ячейку галереи открывается модальное окно с~увеличенной фотографией, цветовой палитрой, score"=card"=метриками, top"~3 стилевыми ярлыками с~прогресс"=барами и~сеткой из~шести похожих фотографий, найденных через \verb|GET /api/photos/{id}/similar|. Похожесть определяется на~основе cosine similarity между 1280"=мерными эмбеддингами (см.~раздел~\ref{sec:embed_quality}). Клик по~похожей фотографии перенаправляет на~неё, что~позволяет навигировать по~коллекции через стилевое <<сходство>>.
+
+\section{Инфраструктура развёртывания}
+\label{sec:infrastructure}
+
+\verb|docker-compose.yml| описывает шесть сервисов: \texttt{postgres}, \texttt{rabbitmq}, \texttt{minio}, \texttt{minio-init} (одноразовый инициализатор бакета при~первом запуске), \texttt{backend}, \texttt{ml-service}. Healthcheck'и и~зависимости через \verb|depends_on: condition: service_healthy| гарантируют корректный порядок старта. Все сервисы помещены в~общую Docker"=bridge"=сеть \texttt{psc-network}, что~обеспечивает разрешение имён хостов внутри.
+
+Именованные тома \texttt{postgres\_data}, \texttt{rabbitmq\_data}, \texttt{minio\_data} обеспечивают сохранность данных между перезапусками контейнеров. Frontend в~production"=сборке мог~бы быть упакован в~отдельный nginx"=контейнер; в~настоящей дипломной демонстрации он~запускается в~dev"=режиме Vite через \verb|npm run dev|.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% ГЛАВА 4
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\chapter{Датасет и обучение модели}
+\label{ch:dataset}
+
+\section{Сбор датасета}
+\label{sec:collection}
+
+Источниками изображений выбраны общедоступные стоковые платформы Unsplash и~Pexels, предоставляющие бесплатное API с~достаточным лимитом запросов и~свободной лицензией использования. Эти источники характеризуются высоким техническим качеством снимков и~достаточно широким спектром стилей, что~критично для~стилевой классификации.
+
+Скачивание выполнено через Python"=скрипт \verb|01_dataset_collection.ipynb|, обращающийся к~Unsplash Search API и~Pexels Search API. Для~каждого целевого класса задавался набор поисковых запросов на~английском языке (например, для~\texttt{neon}: <<neon photography>>, <<cyberpunk lights>>, <<synthwave aesthetic>>, <<tokyo neon>> и~др.). На~каждый запрос API возвращает страницу с~30~изображениями; страницы перебираются до~достижения целевого количества $\sim$\,250 фотографий с~каждого источника на~класс.
+
+Изображения сохраняются с~префиксом источника (\verb|u_| для~Unsplash, \verb|p_| для~Pexels) и~уникальным идентификатором: это упрощает диагностику и~отслеживание происхождения. На~первой итерации собрано $\sim$\,1000~изображений на~класс; распределение по~классам оказалось неравномерным (от~491 в~\texttt{monochrome} до~1457 в~\texttt{minimalist}) в~силу различной популярности тематик в~стоковых архивах.
+
+\section{Эволюция таксономии}
+\label{sec:taxonomy}
+
+Финальная таксономия восьми классов "--- результат трёх итераций пересмотра, мотивированных диагностикой обученных моделей. История изменений приведена в~таблице~\ref{tab:taxonomy}.
+
+\begin{table}[!ht]
+\caption{Эволюция таксономии и сводные метрики}
+\label{tab:taxonomy}
+\centering
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Итерация} & \textbf{Классы} & \textbf{Best val acc} & \textbf{max/min} & \textbf{Bias} \\
+\midrule
+v1 (наивный fine-tune) & 8 (с~\texttt{moody}, \texttt{street}) & 0{,}678 & $5{,}0\times$ & сильный на~\texttt{minimalist} \\
+v2 (балансировка)      & 7 (без~\texttt{street})              & 0{,}724 & $1{,}9\times$ & заметный на~\texttt{moody} \\
+v3 (новая таксономия)  & 8 ($+$\texttt{monochrome}, \texttt{neon}, $-$\texttt{moody}) & 0{,}726 & $1{,}2\times$ & устранён \\
+\textbf{v3.1 (воспр.)} & \textbf{та~же}                       & \textbf{0{,}694} & \textbf{$1{,}2\times$} & \textbf{устранён} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{v1.} Первоначальный набор из~восьми классов: \texttt{moody}, \texttt{minimalist}, \texttt{street}, \texttt{golden\_hour}, \texttt{dark}, \texttt{airy}, \texttt{vintage}, \texttt{dramatic}. Обучение без~балансировки на~датасете с~max/min$=5{,}0$ дало val~acc$=0{,}678$ при~систематическом смещении предсказаний в~доминирующий класс \texttt{minimalist} (ratio предсказанных к~истинным $\sim$\,$2{,}5$).
+
+\paragraph{v2.} Удалён класс \texttt{street} как жанровая категория, не~являющаяся визуальным стилем (модель училась shortcut'у: <<люди на~улице>>~$\to$~\texttt{street}). Применена балансировка через WeightedRandomSampler. Val~acc выросла до~$0{,}724$, но~остаточный bias на~класс \texttt{moody} сохранился. Анализ confusion matrix показал, что~\texttt{moody} систематически пересекается с~\texttt{dark}, \texttt{dramatic}, \texttt{vintage} "--- то~есть является не~ортогональным, а~композитным классом без~операционального определения.
+
+\paragraph{v3.} Класс \texttt{moody} удалён. Введены два класса с~явными операциональными определениями: \texttt{monochrome} (saturation~$\approx 0$) и~\texttt{neon} (saturation~$\geq 0{,}6$ при~низкой средней яркости). Применена двухфазная схема обучения и~MD5"=дедупликация. Val~acc=$0{,}726$, bias"=эффект устранён: распределение предсказаний по~классам в~коридоре $0{,}87$"=$1{,}08$ от~истинного. Per"=class F1: \texttt{neon}~$=0{,}926$, \texttt{golden\_hour}~$=0{,}856$ как лучшие; \texttt{monochrome}~$=0{,}520$ как слабый из"~за ортогонального пересечения с~композиционно"=определимыми классами (\texttt{minimalist}, \texttt{vintage}, \texttt{dark}).
+
+\paragraph{v3.1.} Воспроизводимое переобучение на~детерминированном split'е. Контекст и~необходимость "--- в~разделе~\ref{sec:reproduce}.
+
+\section{Предобработка и балансировка}
+\label{sec:preprocess}
+
+Собранный датасет подвергается трём этапам предобработки:
+
+\begin{enumerate}[label=\arabic{enumi})]
+\item \textbf{Cap по~количеству.} Каждый класс случайно усекается до~600 фотографий (с~детерминированным \texttt{random.seed(42)}). Класс \texttt{minimalist} как изначально наиболее раздутый (1457 фото) дополнительно ограничивается до~500 после разделения на~train/val. Класс \texttt{monochrome} с~исходными 491 фотографиями не~подвергается обрезке.
+\item \textbf{MD5"=дедупликация.} В~каждом классе вычисляется MD5"=хеш содержимого каждого файла; дубликаты удаляются с~сохранением одной копии. На~исходном датасете обнаружено и~удалено 102~дубликата (наиболее значимо в~\texttt{vintage} "--- 25~файлов, \texttt{airy} "--- 27, \texttt{dramatic} "--- 17). Дубликаты возникают из"~за того, что~одни и~те~же фотографии могут быть проиндексированы по~разным поисковым запросам.
+\item \textbf{Stratified split} в~пропорции 80/20 с~детерминированным seed=42. Cap по~\texttt{minimalist} (500~файлов) применяется внутри split'а, что~даёт 400~train / 100~val для~этого класса.
+\end{enumerate}
+
+Итоговое распределение по~классам приведено в~таблице~\ref{tab:dataset}. Соотношение max/min для~train"=множества составляет $1{,}22\times$ (\texttt{neon}~$=$~480, \texttt{minimalist}~$=$~391), что~считается приемлемым уровнем дисбаланса.
+
+\begin{table}[!ht]
+\caption{Распределение train/val по классам в v3.1}
+\label{tab:dataset}
+\centering
+\begin{tabular}{lrr}
+\toprule
+\textbf{Класс} & \textbf{Train} & \textbf{Val} \\
+\midrule
+airy        & 445 & 112 \\
+dark        & 464 & 116 \\
+dramatic    & 456 & 115 \\
+golden\_hour& 469 & 118 \\
+minimalist  & 400 & 100 \\
+monochrome  & 392 &  99 \\
+neon        & 480 & 120 \\
+vintage     & 450 & 113 \\
+\midrule
+\textbf{Итого}  & \textbf{3556} & \textbf{893} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Архитектура дообучения}
+\label{sec:training}
+
+Принята двухфазная схема fine"=tuning'а EfficientNet"~B0, инициализированной ImageNet"=весами:
+
+\paragraph{Фаза 1 (head only, 5~эпох).} Все веса backbone замораживаются. Обучается только новая классифицирующая голова \verb|Linear(1280, 8)| при~learning~rate $10^{-3}$. Цель фазы "--- быстро адаптировать классификатор к~распределению целевых классов до~того, как~backbone начнёт изменяться. Это предотвращает ранние большие градиенты, которые при~немедленном разморозке могут <<сбить>> предобученные представления.
+
+\paragraph{Фаза 2 (full fine"=tune, до~25~эпох).} Все веса размораживаются. Применяются раздельные learning rate: backbone $10^{-4}$, голова $10^{-3}$ (асимметрия в~десять раз). Используется расписание CosineAnnealingLR с~$T_{\max}=25$. Применяется label smoothing с~$\varepsilon=0{,}1$, что~стабилизирует обучение и~улучшает калибровку. Активирован WeightedRandomSampler с~весами $1/count_c$, что~эффективно даёт каждому классу одинаковую ожидаемую частоту в~минибатче.
+
+\paragraph{Дополнительные параметры.} Размер минибатча~32, оптимизатор AdamW с~weight\_decay$=0{,}01$, mixed precision (\verb|torch.amp.autocast|), early stopping с~patience$=7$~эпох без~улучшения val\_acc. Аугментации train"=множества: RandomResizedCrop(224, scale=(0.7, 1.0)), RandomHorizontalFlip(p=0.5), ColorJitter(brightness=0.15, contrast=0.15, saturation=0.15, hue=0.05). Val"=множество не~аугментируется.
+
+\section{Воспроизводимость v3 → v3.1}
+\label{sec:reproduce}
+
+В~ходе подготовки исследовательской части (см.~гл.~\ref{ch:results}) обнаружена методологическая проблема с~оригинальным split'ом v3: он~хранился в~эфемерной файловой системе среды выполнения и~был утрачен после её~перезапуска. При~любой реконструкции split'а на~основе того~же \texttt{random.seed(42)} порядок обхода Drive (FUSE"=mount) оказался нестабильным относительно \texttt{random.shuffle()}, что~приводило к~неполному совпадению с~оригинальным разбиением.
+
+Эмпирически это проявилось в~систематическом завышении val~accuracy с~оригинальных $0{,}726$ до~$0{,}925$ при~прогоне той~же модели на~<<реплицированном>> val. Per"=class F1 показали аномальные скачки: \texttt{monochrome}~$0{,}545 \to 0{,}876$, \texttt{dramatic}~$0{,}586 \to 0{,}897$ "--- увеличения на~28"=35~пп. Это характерный отпечаток data leakage: фотографии, которые модель видела в~обучении оригинального v3, после нового split'а оказались в~новом val"=множестве; модель их~<<запомнила>> и~даёт почти безошибочные предсказания, искусственно завышая метрику.
+
+\textbf{Решение.} Полное переобучение на~воспроизводимом split'е. Алгоритм split'а формализован в~скрипте \verb|training/make_split.py| с~детерминированным порядком обхода файлов через \verb|sorted()| и~тем~же seed=42. Гиперпараметры обучения идентичны v3. Финальные веса сохранены как v3.1.
+
+\textbf{Результат.} val~acc$=0{,}694$, macro F1$=0{,}687$. Снижение на~3~пп относительно v3 (от~$0{,}726$) лежит в~пределах статистической дисперсии для~val"=множества из~893 фотографий и~стохастичных факторов обучения (RandomResizedCrop, перетасовка минибатчей, случайная инициализация головы).
+
+Поэпохная динамика обучения v3.1 приведена в~таблице~\ref{tab:training}.
+
+\begin{table}[!ht]
+\caption{Поэпохная динамика обучения v3.1}
+\label{tab:training}
+\centering
+\begin{tabular}{ccrrr}
+\toprule
+\textbf{Фаза} & \textbf{Эпоха} & \textbf{Train Loss} & \textbf{Val Loss} & \textbf{Val Acc} \\
+\midrule
+1 (head)  &  1 & 1{,}619 & 1{,}406 & 0{,}596 \\
+1 (head)  &  3 & 1{,}291 & 1{,}292 & 0{,}639 \\
+1 (head)  &  5 & 1{,}240 & 1{,}286 & 0{,}622 \\
+2 (full)  &  1 & 1{,}144 & 1{,}205 & 0{,}669 \\
+2 (full)  &  3 & 0{,}950 & 1{,}186 & 0{,}679 \\
+2 (full)  &  5 & 0{,}846 & 1{,}210 & 0{,}689 \\
+2 (full)  & 10 & 0{,}690 & 1{,}248 & 0{,}693 \\
+\textbf{2 (full)} & \textbf{12} & \textbf{0{,}699} & \textbf{1{,}256} & \textbf{0{,}694} \\
+2 (full)  & 14 & 0{,}656 & 1{,}240 & 0{,}694 \\
+2 (full)  & 19 & 0{,}634 & 1{,}266 & 0{,}691 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Лучшая эпоха "--- 12 фазы~2 (общая эпоха 17 от~начала обучения). Early stopping сработал на~эпохе~19 фазы~2 после семи эпох без~улучшения val~acc. На~этой эпохе сохранён финальный чекпоинт.
+
+\section{Сохранение весов и деплоймент}
+\label{sec:deploy}
+
+После обучения \texttt{state\_dict} лучшей эпохи сохраняется в~файл \verb|efficientnet_b0_styles.pth| в~Google~Drive (каталог \verb|training_out_v3.1/|). Размер чекпоинта составляет $\sim$\,16~МБ. Перенос в~ML"=сервис выполняется ручным копированием в~\verb|ml-service/weights/| и~перезапуском контейнера \verb|docker compose restart ml-service|.
+
+При~старте ML"=сервиса \texttt{StyleClassifier} автоматически обнаруживает файл весов через \verb|_resolve_weights_path()|, который последовательно проверяет: каноничный путь из~конфигурации, файлы с~приоритетным префиксом \verb|efficientnet_b0_styles*|, любой \verb|*.pth| в~директории \verb|weights/|. При~обнаружении валидного state\_dict сервис переходит из~эвристического режима в~режим нейросетевого инференса; событие логируется в~stdout: \verb|Model loaded: EfficientNet-B0 (weights from ...)|.
+
 \end{document}
