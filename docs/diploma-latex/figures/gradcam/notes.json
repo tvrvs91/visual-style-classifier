@@ -1,0 +1,408 @@
+[
+  {
+    "image": "val/airy/u_-h1pUiraWq0.jpg",
+    "true_class": "airy",
+    "pred_class": "airy",
+    "confidence": 0.7080762386322021,
+    "kind": "per_class"
+  },
+  {
+    "image": "val/airy/p_12056596.jpg",
+    "true_class": "airy",
+    "pred_class": "airy",
+    "confidence": 0.9940910935401917,
+    "kind": "per_class"
+  },
+  {
+    "image": "val/airy/MN6DNccwTbo.jpg",
+    "true_class": "airy",
+    "pred_class": "airy",
+    "confidence": 0.6277530193328857,
+    "kind": "per_class"
+  },
+  {
+    "image": "val/airy/u_QcSMPnQ4I4g.jpg",
+    "true_class": "airy",
+    "pred_class": "neon",
+    "confidence": 0.7348352074623108,
+    "kind": "per_class"
+  },
+  {
+    "image": "val/airy/p_1858215.jpg",
+    "true_class": "airy",
+    "pred_class": "airy",
+    "confidence": 0.8098040819168091,
+    "kind": "per_class"
+  },
+  {
+    "image": "val/airy/p_17466062.jpg",
+    "true_class": "airy",
+    "pred_class": "airy",
+    "confidence": 0.9592412710189819,
+    "kind": "per_class"
+  },
+  {
+    "image": "val/dark/p_29554717.jpg",
+    "true_class": "dark",
+    "pred_class": "monochrome",
+    "confidence": 0.39486750960350037,
+    "kind": "per_class"
+  },
+  {
+    "image": "val/dark/p_17726772.jpg",
+    "true_class": "dark",
+    "pred_class": "dark",
+    "confidence": 0.8637482523918152,
+    "kind": "per_class"
+  },
+  {
+    "image": "val/dark/u_aotf1u7MtPY.jpg",
+    "true_class": "dark",
+    "pred_class": "dark",
+    "confidence": 0.9552793502807617,
+    "kind": "per_class"
+  },
+  {
+    "image": "val/dark/p_14308295.jpg",
+    "true_class": "dark",
+    "pred_class": "dark",
+    "confidence": 0.8237628936767578,
+    "kind": "per_class"
+  },
+  {
+    "image": "val/dark/u_Rahc5DVnwPA.jpg",
+    "true_class": "dark",
+    "pred_class": "minimalist",
+    "confidence": 0.46403759717941284,
+    "kind": "per_class"
+  },
+  {
+    "image": "val/dark/u_z69hG052-kU.jpg",
+    "true_class": "dark",
+    "pred_class": "neon",
+    "confidence": 0.5239052176475525,
+    "kind": "per_class"
+  },
+  {
+    "image": "val/dramatic/u_AWvW_778-94.jpg",
+    "true_class": "dramatic",
+    "pred_class": "dramatic",
+    "confidence": 0.9676889181137085,
+    "kind": "per_class"
+  },
+  {
+    "image": "val/dramatic/p_12998846.jpg",
+    "true_class": "dramatic",
+    "pred_class": "dramatic",
+    "confidence": 0.5504561066627502,
+    "kind": "per_class"
+  },
+  {
+    "image": "val/dramatic/u_JB30nvwAxUw.jpg",
+    "true_class": "dramatic",
+    "pred_class": "dramatic",
+    "confidence": 0.8965592384338379,
+    "kind": "per_class"
+  },
+  {
+    "image": "val/dramatic/t5MFZgn98X0.jpg",
+    "true_class": "dramatic",
+    "pred_class": "dramatic",
+    "confidence": 0.8770709037780762,
+    "kind": "per_class"
+  },
+  {
+    "image": "val/dramatic/f3tWX0XNuhU.jpg",
+    "true_class": "dramatic",
+    "pred_class": "monochrome",
+    "confidence": 0.4963202178478241,
+    "kind": "per_class"
+  },
+  {
+    "image": "val/dramatic/ZcVQgecl5ZA.jpg",
+    "true_class": "dramatic",
+    "pred_class": "dramatic",
+    "confidence": 0.9555159211158752,
+    "kind": "per_class"
+  },
+  {
+    "image": "val/golden_hour/p_12942313.jpg",
+    "true_class": "golden_hour",
+    "pred_class": "golden_hour",
+    "confidence": 0.9526517987251282,
+    "kind": "per_class"
+  },
+  {
+    "image": "val/golden_hour/p_2389122.jpg",
+    "true_class": "golden_hour",
+    "pred_class": "golden_hour",
+    "confidence": 0.9452195763587952,
+    "kind": "per_class"
+  },
+  {
+    "image": "val/golden_hour/p_26775735.jpg",
+    "true_class": "golden_hour",
+    "pred_class": "golden_hour",
+    "confidence": 0.9050534963607788,
+    "kind": "per_class"
+  },
+  {
+    "image": "val/golden_hour/p_9976730.jpg",
+    "true_class": "golden_hour",
+    "pred_class": "golden_hour",
+    "confidence": 0.923753559589386,
+    "kind": "per_class"
+  },
+  {
+    "image": "val/golden_hour/u_Ch6hLruleJE.jpg",
+    "true_class": "golden_hour",
+    "pred_class": "monochrome",
+    "confidence": 0.39540407061576843,
+    "kind": "per_class"
+  },
+  {
+    "image": "val/golden_hour/p_10670600.jpg",
+    "true_class": "golden_hour",
+    "pred_class": "golden_hour",
+    "confidence": 0.8184844851493835,
+    "kind": "per_class"
+  },
+  {
+    "image": "val/minimalist/u_OsI77aMbcJ4.jpg",
+    "true_class": "minimalist",
+    "pred_class": "monochrome",
+    "confidence": 0.9085661768913269,
+    "kind": "per_class"
+  },
+  {
+    "image": "val/minimalist/p_33881251.jpg",
+    "true_class": "minimalist",
+    "pred_class": "minimalist",
+    "confidence": 0.9847453236579895,
+    "kind": "per_class"
+  },
+  {
+    "image": "val/minimalist/u_nZ2eGdx_a-Y.jpg",
+    "true_class": "minimalist",
+    "pred_class": "neon",
+    "confidence": 0.48786547780036926,
+    "kind": "per_class"
+  },
+  {
+    "image": "val/minimalist/u_cAfAKfYvMPM.jpg",
+    "true_class": "minimalist",
+    "pred_class": "monochrome",
+    "confidence": 0.9363579750061035,
+    "kind": "per_class"
+  },
+  {
+    "image": "val/minimalist/u_iBPduh6rg4w.jpg",
+    "true_class": "minimalist",
+    "pred_class": "minimalist",
+    "confidence": 0.425525963306427,
+    "kind": "per_class"
+  },
+  {
+    "image": "val/minimalist/u_J56Ca2PMEK8.jpg",
+    "true_class": "minimalist",
+    "pred_class": "minimalist",
+    "confidence": 0.22398769855499268,
+    "kind": "per_class"
+  },
+  {
+    "image": "val/monochrome/u_37diuBsJXaw.jpg",
+    "true_class": "monochrome",
+    "pred_class": "airy",
+    "confidence": 0.8113853335380554,
+    "kind": "per_class"
+  },
+  {
+    "image": "val/monochrome/p_32466563.jpg",
+    "true_class": "monochrome",
+    "pred_class": "monochrome",
+    "confidence": 0.9278391003608704,
+    "kind": "per_class"
+  },
+  {
+    "image": "val/monochrome/u_6H44-QVoZTg.jpg",
+    "true_class": "monochrome",
+    "pred_class": "monochrome",
+    "confidence": 0.46343544125556946,
+    "kind": "per_class"
+  },
+  {
+    "image": "val/monochrome/u_WK-OZtZaVeY.jpg",
+    "true_class": "monochrome",
+    "pred_class": "dramatic",
+    "confidence": 0.6349472403526306,
+    "kind": "per_class"
+  },
+  {
+    "image": "val/monochrome/p_33966818.jpg",
+    "true_class": "monochrome",
+    "pred_class": "monochrome",
+    "confidence": 0.6749970316886902,
+    "kind": "per_class"
+  },
+  {
+    "image": "val/monochrome/p_10370127.jpg",
+    "true_class": "monochrome",
+    "pred_class": "minimalist",
+    "confidence": 0.8753058314323425,
+    "kind": "per_class"
+  },
+  {
+    "image": "val/neon/u_VZ4LULR_Cjw.jpg",
+    "true_class": "neon",
+    "pred_class": "airy",
+    "confidence": 0.6675479412078857,
+    "kind": "per_class"
+  },
+  {
+    "image": "val/neon/u_ikqbS_l7YDM.jpg",
+    "true_class": "neon",
+    "pred_class": "golden_hour",
+    "confidence": 0.5008948445320129,
+    "kind": "per_class"
+  },
+  {
+    "image": "val/neon/p_25526690.jpg",
+    "true_class": "neon",
+    "pred_class": "neon",
+    "confidence": 0.8798298835754395,
+    "kind": "per_class"
+  },
+  {
+    "image": "val/neon/u_Hs57PmLEcIk.jpg",
+    "true_class": "neon",
+    "pred_class": "neon",
+    "confidence": 0.8287639617919922,
+    "kind": "per_class"
+  },
+  {
+    "image": "val/neon/p_4983369.jpg",
+    "true_class": "neon",
+    "pred_class": "neon",
+    "confidence": 0.9962006211280823,
+    "kind": "per_class"
+  },
+  {
+    "image": "val/neon/p_36024139.jpg",
+    "true_class": "neon",
+    "pred_class": "neon",
+    "confidence": 0.9609613418579102,
+    "kind": "per_class"
+  },
+  {
+    "image": "val/vintage/p_27059058.jpg",
+    "true_class": "vintage",
+    "pred_class": "vintage",
+    "confidence": 0.2633272111415863,
+    "kind": "per_class"
+  },
+  {
+    "image": "val/vintage/p_12378647.jpg",
+    "true_class": "vintage",
+    "pred_class": "vintage",
+    "confidence": 0.9409787058830261,
+    "kind": "per_class"
+  },
+  {
+    "image": "val/vintage/p_20045870.jpg",
+    "true_class": "vintage",
+    "pred_class": "vintage",
+    "confidence": 0.9837967753410339,
+    "kind": "per_class"
+  },
+  {
+    "image": "val/vintage/u_l8DKkI2PxY4.jpg",
+    "true_class": "vintage",
+    "pred_class": "vintage",
+    "confidence": 0.8005476593971252,
+    "kind": "per_class"
+  },
+  {
+    "image": "val/vintage/p_34084882.jpg",
+    "true_class": "vintage",
+    "pred_class": "vintage",
+    "confidence": 0.4656529724597931,
+    "kind": "per_class"
+  },
+  {
+    "image": "val/vintage/p_10219043.jpg",
+    "true_class": "vintage",
+    "pred_class": "dark",
+    "confidence": 0.6613408327102661,
+    "kind": "per_class"
+  },
+  {
+    "image": "val/dramatic/u_fus8TyxXabA.jpg",
+    "true_class": "dramatic",
+    "pred_class": "monochrome",
+    "confidence": 0.9753994345664978,
+    "kind": "error"
+  },
+  {
+    "image": "val/monochrome/u_9fZ03i5tovI.jpg",
+    "true_class": "monochrome",
+    "pred_class": "vintage",
+    "confidence": 0.9583871960639954,
+    "kind": "error"
+  },
+  {
+    "image": "val/dramatic/u_TJVDji1_In4.jpg",
+    "true_class": "dramatic",
+    "pred_class": "monochrome",
+    "confidence": 0.9521489143371582,
+    "kind": "error"
+  },
+  {
+    "image": "val/monochrome/u_KtPczuFTaHU.jpg",
+    "true_class": "monochrome",
+    "pred_class": "minimalist",
+    "confidence": 0.9484484195709229,
+    "kind": "error"
+  },
+  {
+    "image": "val/airy/p_733100.jpg",
+    "true_class": "airy",
+    "pred_class": "golden_hour",
+    "confidence": 0.9454389810562134,
+    "kind": "error"
+  },
+  {
+    "image": "val/dark/u_w15lLfNAR7M.jpg",
+    "true_class": "dark",
+    "pred_class": "dramatic",
+    "confidence": 0.9416046738624573,
+    "kind": "error"
+  },
+  {
+    "image": "val/monochrome/u_VGVcIIeyXNQ.jpg",
+    "true_class": "monochrome",
+    "pred_class": "vintage",
+    "confidence": 0.9414404034614563,
+    "kind": "error"
+  },
+  {
+    "image": "val/dramatic/u_gfWplyn9otI.jpg",
+    "true_class": "dramatic",
+    "pred_class": "golden_hour",
+    "confidence": 0.9403623938560486,
+    "kind": "error"
+  },
+  {
+    "image": "val/minimalist/u_5n6fNIMUDPQ.jpg",
+    "true_class": "minimalist",
+    "pred_class": "monochrome",
+    "confidence": 0.9364303946495056,
+    "kind": "error"
+  },
+  {
+    "image": "val/minimalist/u_cAfAKfYvMPM.jpg",
+    "true_class": "minimalist",
+    "pred_class": "monochrome",
+    "confidence": 0.9363577365875244,
+    "kind": "error"
+  }
+]

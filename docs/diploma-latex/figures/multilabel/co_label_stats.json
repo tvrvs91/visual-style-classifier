@@ -1,0 +1,79 @@
+{
+  "per_class_positives": {
+    "airy": 588,
+    "monochrome": 1231,
+    "golden_hour": 517,
+    "dramatic": 565,
+    "neon": 715,
+    "dark": 1503,
+    "minimalist": 400,
+    "vintage": 450
+  },
+  "share_multi_label": 0.5683352080989876,
+  "n_train": 3556,
+  "top_combinations": [
+    {
+      "labels": [
+        "dark",
+        "neon"
+      ],
+      "count": 424
+    },
+    {
+      "labels": [
+        "dark",
+        "monochrome"
+      ],
+      "count": 334
+    },
+    {
+      "labels": [
+        "airy"
+      ],
+      "count": 314
+    },
+    {
+      "labels": [
+        "golden_hour"
+      ],
+      "count": 234
+    },
+    {
+      "labels": [
+        "monochrome"
+      ],
+      "count": 213
+    },
+    {
+      "labels": [
+        "dark"
+      ],
+      "count": 203
+    },
+    {
+      "labels": [
+        "vintage"
+      ],
+      "count": 199
+    },
+    {
+      "labels": [
+        "dramatic"
+      ],
+      "count": 148
+    },
+    {
+      "labels": [
+        "minimalist"
+      ],
+      "count": 132
+    },
+    {
+      "labels": [
+        "airy",
+        "monochrome"
+      ],
+      "count": 119
+    }
+  ]
+}

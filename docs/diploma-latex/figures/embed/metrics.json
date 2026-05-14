@@ -1,0 +1,18 @@
+{
+  "silhouette_cosine": 0.025960911065340042,
+  "davies_bouldin": 6.235582245191701,
+  "knn5_accuracy_mean": 0.6178457096227482,
+  "knn5_accuracy_std": 0.10848069186394996,
+  "n_samples": 893,
+  "embedding_dim": 1280,
+  "class_names": [
+    "airy",
+    "dark",
+    "dramatic",
+    "golden_hour",
+    "minimalist",
+    "monochrome",
+    "neon",
+    "vintage"
+  ]
+}

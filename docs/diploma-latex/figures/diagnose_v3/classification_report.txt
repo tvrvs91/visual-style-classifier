@@ -1,0 +1,14 @@
+              precision    recall  f1-score   support
+
+        airy      0.964     0.946     0.955       112
+        dark      0.907     0.922     0.915       116
+    dramatic      0.926     0.870     0.897       115
+ golden_hour      0.975     0.992     0.983       118
+  minimalist      0.867     0.850     0.859       100
+  monochrome      0.863     0.889     0.876        99
+        neon      0.967     0.983     0.975       120
+     vintage      0.913     0.929     0.921       113
+
+    accuracy                          0.925       893
+   macro avg      0.923     0.923     0.923       893
+weighted avg      0.925     0.925     0.925       893

@@ -1,0 +1,4 @@
+method,accuracy,macro_f1,size_mb,training_required
+EfficientNet-B0 fine-tune (v3),0.726,0.718,16,yes (2-phase fine-tune ~30 min T4)
+CLIP ViT-B-32 linear probe,0.7379619260918253,0.7304925527777332,350,only sklearn logreg (<1 min CPU)
+CLIP ViT-B-32 zero-shot,0.6349384098544233,0.6164227369244113,350,none
