@@ -512,6 +512,104 @@ saturation. Можно посчитать средние scores для кажд�
 
 ---
 
+## M18. Воспроизводимость v3 — точная методология датасета и обучения
+
+Расширение M17. Зафиксирована инженерная сторона: что именно делалось в
+`train_pipeline.ipynb` (хранится у автора), какие гиперпараметры, где
+результирующие артефакты.
+
+**Предобработка датасета (in-place в Drive `MyDrive/dataset/`).**
+1. Удаление папок `moody/` и `street/` (методологическая чистка по
+   итогам v2).
+2. Случайная подвыборка до 600 фото на класс с `random.seed(42)` (для
+   классов, где было больше 600 — это все, кроме `monochrome` с 491).
+
+После этих шагов в Drive — постбалансировочное состояние: 7 классов
+по 600 + monochrome 491 = 4691 фото. Это **текущее** состояние Drive
+у автора.
+
+**Создание split (в `/content/dataset_split/` локально Colab).**
+3. Копирование всех файлов с Drive в локальный split с `random.shuffle`
+   и 80/20 разделением (`random.seed(42)`).
+4. Дополнительный cap `minimalist` после split: train → 400, val → 100
+   (вместо 480/120 — устраняет доминирование класса, унаследованное от
+   v1/v2).
+5. MD5-дедупликация по содержимому внутри каждой `(split, class)`-папки:
+   удалено 102 файла дублей (значимо в train/airy, vintage, dark; почти
+   нет в val).
+
+**Финальные размеры train/val (на которых обучалась модель):**
+
+| Class | Train | Val |
+|---|---:|---:|
+| airy        | 453 | 119 |
+| dark        | 468 | 118 |
+| dramatic    | 463 | 119 |
+| golden_hour | 474 | 120 |
+| minimalist  | 391 |  99 |
+| monochrome  | 392 |  99 |
+| neon        | 480 | 120 |
+| vintage     | 455 | 119 |
+| **Итого**   | **3576** | **913** |
+
+**Гиперпараметры (training/train.py с явными значениями).**
+
+| Параметр | Значение |
+|---|---|
+| Архитектура | EfficientNet-B0 (torchvision IMAGENET1K_V1) |
+| Голова | `Linear(1280, 8)` |
+| Phase 1 (head only) | 5 epochs, lr_head=1e-3, AdamW, wd=0.01 |
+| Phase 2 (full fine-tune) | 25 epochs, lr_backbone=1e-4, lr_head=1e-3 |
+| Scheduler | CosineAnnealingLR(T_max=25) во второй фазе |
+| Loss | CrossEntropyLoss(label_smoothing=0.1) |
+| Sampler | WeightedRandomSampler (1/count на класс) |
+| Аугментации train | RandomResizedCrop(224, scale=(0.7,1.0)) + HorizontalFlip + ColorJitter(0.15,0.15,0.15,0.05) |
+| Аугментации val | Resize((224,224)) — без augmentation |
+| Normalize | ImageNet mean/std |
+| Mixed precision | torch.amp.autocast (CUDA) |
+| Batch size | 32 |
+| Early stopping | patience=7 эпох без улучшения val_acc |
+| Среда | Colab Tesla T4, ~80 сек/эпоха |
+
+**Ход обучения.** Phase 1 поднял val_acc с 0.579 до 0.632. Phase 2 быстро
+обогнал (ep01: 0.671 ⭐), монотонно улучшал с лёгкими плато; best —
+**Phase 2 ep14 val_acc=0.7262**. Early stopping сработал на ep21
+(7 эпох без улучшения). Полные поэпохные данные — в `docs/training-metrics.md`.
+
+**Артефакты на Drive (источник правды).**
+
+```
+MyDrive/training_out_v3/
+├── efficientnet_b0_styles.pth     ← веса (~16 MB, в production ml-service)
+├── metrics.json                   ← train/val loss+acc по эпохам
+├── classification_report.txt      ← per-class P/R/F1
+├── confusion_matrix.csv / .png
+├── class_to_idx.json              ← {airy:0, dark:1, ..., vintage:7}
+└── diag/
+    └── confusion_matrix.png       ← после training/diagnose.py
+```
+
+**Воспроизведение split'а для последующих экспериментов.**
+Скрипт `training/make_split.py` поддерживает все шаги предобработки
+одной командой (MD5-dedup + cap + cap_class + stratified split с seed):
+
+```bash
+python training/make_split.py \
+    --src /content/drive/MyDrive/dataset \
+    --dst /content/dataset \
+    --val-ratio 0.20 --seed 42 \
+    --dedup \
+    --target-count 600 \
+    --cap-class minimalist:500
+```
+
+Это **близкая, но не побитовая** реплика оригинального split'а (порядок
+файлов в `iterdir()` зависит от файловой системы; различие — несколько
+файлов на класс). На том же state_dict v3 даёт val_acc ≈ 0.72–0.73.
+Достаточная воспроизводимость для последующих E1–E5 экспериментов.
+
+---
+
 ## Сводная карта сделанного (для разворачивания в отчёт)
 
 | Milestone | Что | Коммит |
@@ -534,5 +632,8 @@ saturation. Можно посчитать средние scores для кажд�
 | M15 | Color palette + score card (расширенный анализ) | `b175293` |
 | M16 | Анализ конкурентов и стека в REPORT.md | `b175293` |
 | M17 | Color filter (поиск по доминирующему цвету) | `935d17a` |
-| M18 | **Финальная таксономия v3** (8 классов, +monochrome +neon, −moody) | следующий коммит |
+| M18 | Финальная таксономия v3 (8 классов, +monochrome +neon, −moody) | `c2da0f0` |
+| M19 | Воспроизводимость v3 + расширение make_split (dedup/cap) | `49593d8` |
+| M20 | Скелеты E1–E6 deep-dive экспериментов | `4a6b971` + `4819960` |
+| M21 | Colab-блокнот + COLAB_GUIDE для прогона E1–E6 | `39946e5` (далее) |
 

@@ -2,7 +2,7 @@
 
 ## TL;DR — что нужно сделать
 
-1. Положить в Drive файл `efficientnet_b0_styles.pth` (16 МБ, из локального `ml-service/weights/`).
+1. Убедиться, что в Drive есть **датасет** (`MyDrive/dataset/<class>/`) и **веса** (`MyDrive/training_out_v3/efficientnet_b0_styles.pth`) — это уже должно быть после твоего `train_pipeline.ipynb`.
 2. Открыть в Colab **один** блокнот: [`training/colab_runbook.ipynb`](colab_runbook.ipynb) (см. ниже как).
 3. Включить GPU (Runtime → Change runtime type → T4).
 4. Запускать ячейки сверху вниз, **по одной**, ожидая завершения каждой.
@@ -16,23 +16,54 @@
 
 ```
 MyDrive/
-├── dataset/                              ← у тебя уже есть, плоская структура
-│   ├── airy/
-│   ├── dark/
-│   ├── dramatic/
-│   ├── golden_hour/
-│   ├── minimalist/
-│   ├── monochrome/
-│   ├── neon/
-│   └── vintage/
-└── efficientnet_b0_styles.pth            ← положить вручную (drag&drop)
+├── dataset/                              ← плоская структура, после v3-обрезки
+│   ├── airy/         (≤600 фото)
+│   ├── dark/         (≤600 фото)
+│   ├── dramatic/     (≤600 фото)
+│   ├── golden_hour/  (≤600 фото)
+│   ├── minimalist/   (≤600 фото)
+│   ├── monochrome/   (491 фото)
+│   ├── neon/         (≤600 фото)
+│   └── vintage/      (≤600 фото)
+└── training_out_v3/
+    ├── efficientnet_b0_styles.pth        ← обученные веса v3 (~16 МБ)
+    ├── metrics.json
+    ├── classification_report.txt
+    ├── confusion_matrix.png
+    └── ...
 ```
 
-Файл весов находится у тебя локально по пути:
-`C:\projects\photo-style-classifier\ml-service\weights\efficientnet_b0_styles.pth`
+Это состояние Drive после прогона твоего `train_pipeline.ipynb`. Если файла
+весов нет — значит, нужно либо повторить обучение, либо вытащить веса
+из локального `ml-service/weights/efficientnet_b0_styles.pth` и загрузить
+вручную в `MyDrive/training_out_v3/`.
 
-Перетащи его в корень `MyDrive` (или в `MyDrive/diploma/` — тогда поправь
-переменную `WEIGHTS` в первой code-ячейке блокнота).
+---
+
+## Воспроизведение split'а v3
+
+В блокноте `train_pipeline.ipynb` v3 обучалась на split'е, построенном так:
+- MD5-дедупликация внутри каждого класса;
+- cap каждого класса до 600 фото (`minimalist` — отдельно до 500, потому
+  что был раздут до 1457);
+- random 80/20 split с `seed=42`.
+
+Скрипт `training/make_split.py` поддерживает эти опции одной командой:
+
+```bash
+python training/make_split.py \
+    --src /content/drive/MyDrive/dataset \
+    --dst /content/dataset \
+    --val-ratio 0.20 --seed 42 \
+    --dedup \
+    --target-count 600 \
+    --cap-class minimalist:500
+```
+
+Это создаст в `/content/dataset/{train,val}/<class>/` симлинки на файлы Drive.
+Drive не меняется. Распределение будет **близко** к оригинальному
+(может различаться на ±1–2 фото из-за порядка iterdir, но val_acc должна
+быть в пределах 0.71–0.74).
 
 ---
 
@@ -157,9 +188,15 @@ E6 (multi-label) — это «вишенка на торте», эксперим
 
 ## Если что-то падает
 
-- **«нет файла весов»** — не положил `.pth` в Drive, или путь не такой.
-  Проверь `!ls /content/drive/MyDrive/efficientnet_b0_styles.pth`.
+- **«нет файла весов»** — путь должен быть
+  `MyDrive/training_out_v3/efficientnet_b0_styles.pth`. Проверь
+  `!ls /content/drive/MyDrive/training_out_v3/`.
 - **«нет датасета»** — проверь имя папки (должна быть ровно `dataset`).
+- **diagnose даёт acc < 0.65** — split разъехался относительно оригинального.
+  Возможные причины: Drive `dataset/` отличается от того, на котором
+  обучалась модель (например, добавились фото). Решение: либо принять
+  более низкое значение acc как baseline для этого прогона, либо
+  использовать веса, полученные на этом же split'е.
 - **CUDA OOM в E6** — уменьши `--batch-size 16` или `--num-workers 0`.
 - **«open_clip not found»** — пере-запусти ячейку 3 (`pip install`).
 - **Drive отвалился** — пере-запусти ячейку 1, авторизуйся повторно.
