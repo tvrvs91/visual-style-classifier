@@ -702,7 +702,7 @@ vintage     & 450 & 113 \\
 
 \paragraph{Дополнительные параметры.} Размер минибатча~32, оптимизатор AdamW с~weight\_decay$=0{,}01$, mixed precision (\verb|torch.amp.autocast|), early stopping с~patience$=7$~эпох без~улучшения val\_acc. Аугментации train"=множества: RandomResizedCrop(224, scale=(0.7, 1.0)), RandomHorizontalFlip(p=0.5), ColorJitter(brightness=0.15, contrast=0.15, saturation=0.15, hue=0.05). Val"=множество не~аугментируется.
 
-\section{Воспроизводимость v3 → v3.1}
+\section{Воспроизводимость v3 $	o$ v3.1}
 \label{sec:reproduce}
 
 В~ходе подготовки исследовательской части (см.~гл.~\ref{ch:results}) обнаружена методологическая проблема с~оригинальным split'ом v3: он~хранился в~эфемерной файловой системе среды выполнения и~был утрачен после её~перезапуска. При~любой реконструкции split'а на~основе того~же \texttt{random.seed(42)} порядок обхода Drive (FUSE"=mount) оказался нестабильным относительно \texttt{random.shuffle()}, что~приводило к~неполному совпадению с~оригинальным разбиением.
@@ -767,20 +767,20 @@ vintage     & 450 & 113 \\
 \toprule
 \textbf{Сценарий} & \textbf{Ожидаемый результат} & \textbf{Факт} \\
 \midrule
-Регистрация с~валидным email/паролем     & 200 OK, JWT в~ответе       & ✓ \\
-Регистрация с~существующим email         & 409 Conflict               & ✓ \\
-Аутентификация с~правильными данными     & 200 OK, JWT                & ✓ \\
-Аутентификация с~неверным паролем        & 401 Unauthorized           & ✓ \\
-Доступ к~\texttt{/api/photos} без~JWT    & 401 Unauthorized           & ✓ \\
-Загрузка JPEG                            & 200, PENDING, в~MinIO, в~очереди & ✓ \\
-Загрузка файла \texttt{.txt}             & 400, Unsupported content type   & ✓ \\
-Загрузка файла $>$25~МБ                  & 400, Max upload size exceeded  & ✓ \\
-Получение фото через $\sim$\,3~с         & DONE, 3~тега со~стилями    & ✓ \\
-Поиск \texttt{?style=neon}               & только фото с~этим тегом   & ✓ \\
-Поиск \texttt{?style=neon\&minConfidence=1.0} & пустой результат      & ✓ \\
-Отображение presigned URL в~браузере     & изображение загружается    & ✓ \\
-Модальное окно <<Похожие фото>>          & 6 фото в~grid, исключая текущее & ✓ \\
-Удаление фотографии                      & 204 No Content, удаление из~MinIO & ✓ \\
+Регистрация с~валидным email/паролем     & 200 OK, JWT в~ответе       & да \\
+Регистрация с~существующим email         & 409 Conflict               & да \\
+Аутентификация с~правильными данными     & 200 OK, JWT                & да \\
+Аутентификация с~неверным паролем        & 401 Unauthorized           & да \\
+Доступ к~\texttt{/api/photos} без~JWT    & 401 Unauthorized           & да \\
+Загрузка JPEG                            & 200, PENDING, в~MinIO, в~очереди & да \\
+Загрузка файла \texttt{.txt}             & 400, Unsupported content type   & да \\
+Загрузка файла $>$25~МБ                  & 400, Max upload size exceeded  & да \\
+Получение фото через $\sim$\,3~с         & DONE, 3~тега со~стилями    & да \\
+Поиск \texttt{?style=neon}               & только фото с~этим тегом   & да \\
+Поиск \texttt{?style=neon\&minConfidence=1.0} & пустой результат      & да \\
+Отображение presigned URL в~браузере     & изображение загружается    & да \\
+Модальное окно <<Похожие фото>>          & 6 фото в~grid, исключая текущее & да \\
+Удаление фотографии                      & 204 No Content, удаление из~MinIO & да \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -1303,7 +1303,7 @@ Hamming accuracy             & $0{,}920$ \\
 Per"=class сравнение F1 между single"=label v3.1 и~multi"=label v4 "--- в~таблице~\ref{tab:ml_perclass}.
 
 \begin{table}[!ht]
-\caption{Per"-class F1: переход single"-label v3.1 → multi"-label v4}
+\caption{Per"-class F1: переход single"-label v3.1 $	o$ multi"-label v4}
 \label{tab:ml_perclass}
 \centering
 \begin{tabular}{lrrrr}
