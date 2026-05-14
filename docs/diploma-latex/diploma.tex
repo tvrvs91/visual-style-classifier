@@ -17,8 +17,8 @@
 \usepackage{booktabs}
 \usepackage{longtable}
 \usepackage{makecell}
-\usepackage{tikz}
-\usepackage[linesnumbered,lined,ruled]{algorithm2e}
+% \usepackage{tikz}                                 % не используется
+% \usepackage[linesnumbered,lined,ruled]{algorithm2e} % не используется
 \usepackage{listings}
 % Поддержка кириллицы в listings (русские буквы через T2A char-коды)
 \lstset{
@@ -63,8 +63,8 @@
 }
 \usepackage{icomma}
 
-\mathtoolsset{showonlyrefs}
-\usepackage{microtype}
+% \mathtoolsset{showonlyrefs}  % требует mathtools, не подключен
+% \usepackage{microtype}        % замедляет компиляцию ~30%, отключено
 \usepackage[unicode, pdfborder={0 0 0}, pdfstartview=FitV]{hyperref}
 
 % Часто используемые макросы
@@ -702,7 +702,7 @@ vintage     & 450 & 113 \\
 
 \paragraph{Дополнительные параметры.} Размер минибатча~32, оптимизатор AdamW с~weight\_decay$=0{,}01$, mixed precision (\verb|torch.amp.autocast|), early stopping с~patience$=7$~эпох без~улучшения val\_acc. Аугментации train-множества: RandomResizedCrop(224, scale=(0.7, 1.0)), RandomHorizontalFlip(p=0.5), ColorJitter(brightness=0.15, contrast=0.15, saturation=0.15, hue=0.05). Val-множество не~аугментируется.
 
-\section{Воспроизводимость v3 $	o$ v3.1}
+\section{Воспроизводимость v3 и переход к v3.1}
 \label{sec:reproduce}
 
 В~ходе подготовки исследовательской части (см.~гл.~\ref{ch:results}) обнаружена методологическая проблема с~оригинальным split'ом v3: он~хранился в~эфемерной файловой системе среды выполнения и~был утрачен после её~перезапуска. При~любой реконструкции split'а на~основе того~же \texttt{random.seed(42)} порядок обхода Drive (FUSE-mount) оказался нестабильным относительно \texttt{random.shuffle()}, что~приводило к~неполному совпадению с~оригинальным разбиением.
@@ -1303,7 +1303,7 @@ Hamming accuracy             & $0{,}920$ \\
 Per-class сравнение F1 между single-label v3.1 и~multi-label v4 --- в~таблице~\ref{tab:ml_perclass}.
 
 \begin{table}[!ht]
-\caption{Per-class F1: переход single-label v3.1 $	o$ multi-label v4}
+\caption{Per-class F1: переход single-label v3.1 $\to$ multi-label v4}
 \label{tab:ml_perclass}
 \centering
 \begin{tabular}{lrrrr}
