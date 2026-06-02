@@ -4,12 +4,18 @@
 \documentclass[a4paper,12pt]{diplom}
 \inputencoding{utf8}
 \usepackage{tempora} % Times New Roman с поддержкой кириллицы (T2A) и формул
-\DeclareMathSizes{12}{13.4}{11}{10}
+\usepackage[fontsize=14pt]{fontsize} % Кегль 14 pt (требование ЯрГУ)
 
-\usepackage[left=3cm,right=2cm,top=2cm,bottom=2cm]{geometry}
+% Поля по правилам ЯрГУ: слева 30, справа 15, сверху/снизу 20 мм
+\usepackage[left=3cm,right=1.5cm,top=2cm,bottom=2cm]{geometry}
 \usepackage[onehalfspacing]{setspace}
 \usepackage{indentfirst}
 \setlength{\parindent}{1.25cm}
+
+% Номера страниц внизу по центру (требование ЯрГУ)
+\pagestyle{plain}
+% Подпись иллюстраций словом «Рис.» (требование ЯрГУ)
+\AtBeginDocument{\renewcommand{\figurename}{Рис.}}
 
 \usepackage[pdftex]{graphicx}
 \graphicspath{{figures/}}
@@ -115,7 +121,7 @@
 
 \medskip
 
-\Keywords{компьютерное зрение, классификация изображений, transfer learning, EfficientNet, CLIP, multi-label classification, интерпретируемость, Grad-CAM, embeddings, микросервисная архитектура, Spring Boot, FastAPI, React.}
+\Keywords{\MakeUppercase{компьютерное зрение, классификация изображений, transfer learning, EfficientNet, CLIP, multi-label classification, интерпретируемость, Grad-CAM, embeddings, микросервисная архитектура, Spring Boot, FastAPI, React.}}
 
 \medskip
 
