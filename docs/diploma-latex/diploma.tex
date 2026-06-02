@@ -116,7 +116,7 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \chapter*{Реферат}
 
-Объём \total{page}~с., \total{chapternum}~гл., 11~рис.,
+Объём \total{page}~с., \total{chapternum}~гл., 10~рис.,
 20~табл., \total{bibnum}~источников, \total{appnum}~прил.
 
 \medskip
@@ -462,7 +462,7 @@ GET    & \texttt{/api/stats/me}          & Статистика пользова
 \section{Структура проекта}
 \label{sec:structure}
 
-Репозиторий организован в~корневые каталоги по~компонентам системы (листинг~\ref{lst:tree}). Каждый компонент содержит собственный Dockerfile и~конфигурацию сборки. Корневой \verb|docker-compose.yml| описывает их~совместный запуск.
+Репозиторий организован в~корневые каталоги по~компонентам системы (листинг~\ref{lst:tree}; полное дерево -- в~приложении~\ref{app:structure}). Каждый компонент содержит собственный Dockerfile и~конфигурацию сборки. Корневой \verb|docker-compose.yml| описывает их~совместный запуск.
 
 \begin{lstlisting}[caption={Структура корневого каталога репозитория},label=lst:tree,basicstyle=\ttfamily\small,frame=single]
 photo-style-classifier/
@@ -558,7 +558,7 @@ with torch.no_grad():
     embedding = pooled_flat.squeeze(0).cpu().numpy()
 \end{lstlisting}
 
-Эмбеддинг я~снимаю прямо с~выхода global average pooling -- то~есть до~классифицирующей головы, -- а~голову применяю отдельной строкой. В~итоге оба выхода берутся за~один forward, и~эмбеддинг уезжает вместе с~результатом классификации, без~повторного прогона сети.
+Эмбеддинг я~снимаю прямо с~выхода global average pooling -- то~есть до~классифицирующей головы, -- а~голову применяю отдельной строкой. В~итоге оба выхода берутся за~один forward, и~эмбеддинг уезжает вместе с~результатом классификации, без~повторного прогона сети. Полный код этого метода приведён в~приложении~\ref{app:classifier}.
 
 \subsection{Препроцессинг и аугментации}
 
@@ -977,25 +977,18 @@ k-NN5 accuracy (5-fold CV)      & $0{,}618 \pm 0{,}108$ \\
 \end{tabular}
 \end{table}
 
-Двумерные проекции эмбеддингов приведены на~рис.~\ref{fig:tsne} и~рис.~\ref{fig:umap}, матрица центроидной близости -- на~рис.~\ref{fig:centroids}.
+Двумерная t-SNE-проекция эмбеддингов приведена на~рис.~\ref{fig:tsne} (UMAP даёт качественно ту~же картину), матрица центроидной близости -- на~рис.~\ref{fig:centroids}.
 
 \begin{figure}[!ht]
 \centering
-\includegraphics[width=0.85\textwidth]{embed/tsne.png}
+\includegraphics[width=0.8\textwidth]{embed/tsne.png}
 \caption{t-SNE проекция 1280-мерных эмбеддингов val-выборки (perplexity~$=30$)}
 \label{fig:tsne}
 \end{figure}
 
 \begin{figure}[!ht]
 \centering
-\includegraphics[width=0.85\textwidth]{embed/umap.png}
-\caption{UMAP-проекция эмбеддингов (n\_neighbors~$=15$, min\_dist~$=0{,}1$)}
-\label{fig:umap}
-\end{figure}
-
-\begin{figure}[!ht]
-\centering
-\includegraphics[width=0.85\textwidth]{embed/centroid_similarity.png}
+\includegraphics[width=0.8\textwidth]{embed/centroid_similarity.png}
 \caption{Cosine similarity между центроидами классов в embedding-пространстве}
 \label{fig:centroids}
 \end{figure}
@@ -1689,93 +1682,6 @@ def _nn_inference(self, img: Image.Image
         embedding = pooled_flat.squeeze(0).cpu().numpy()
 
     return [float(p) for p in probs], [float(v) for v in embedding]
-\end{lstlisting}
-
-\chapter{Реализация процедуры дообучения}
-\label{app:training}
-
-Ниже приведён фрагмент основного цикла обучения -- двухфазный fine-tune с~WeightedRandomSampler, label smoothing и~cosine annealing.
-
-\begin{lstlisting}[language=Python,basicstyle=\ttfamily\footnotesize,frame=single,caption={Двухфазный цикл обучения (training/train.py)},label=lst:train_loop]
-# Phase 1: только голова
-for p_ in backbone_params:
-    p_.requires_grad = False
-optimizer = optim.AdamW(head_params, lr=args.lr_head,
-                        weight_decay=args.weight_decay)
-
-for ep in range(1, args.head_epochs + 1):
-    tr_loss, _ = run_epoch(model, train_loader, criterion,
-                           optimizer, device, scaler, train=True)
-    vl_loss, vl_acc = run_epoch(model, val_loader, criterion,
-                                optimizer, device, scaler, train=False)
-
-# Phase 2: full fine-tune с косинусным расписанием
-for p_ in backbone_params:
-    p_.requires_grad = True
-optimizer = optim.AdamW([
-    {"params": backbone_params, "lr": args.lr_backbone},
-    {"params": head_params, "lr": args.lr_head},
-], weight_decay=args.weight_decay)
-n_full = args.epochs - args.head_epochs
-scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=n_full)
-
-best_val_acc, no_improve = 0.0, 0
-for ep in range(1, n_full + 1):
-    tr_loss, _ = run_epoch(model, train_loader, criterion,
-                           optimizer, device, scaler,
-                           train=True, mixup_alpha=args.mixup_alpha)
-    vl_loss, vl_acc = run_epoch(model, val_loader, criterion,
-                                optimizer, device, scaler, train=False)
-    scheduler.step()
-    if vl_acc > best_val_acc:
-        best_val_acc, no_improve = vl_acc, 0
-        torch.save(model.state_dict(),
-                   out_dir / f"{args.arch}_styles.pth")
-    else:
-        no_improve += 1
-        if no_improve >= args.patience:
-            break  # Early stopping
-\end{lstlisting}
-
-\chapter{Реализация Grad-CAM}
-\label{app:gradcam}
-
-Самостоятельная реализация Grad"~CAM через PyTorch hooks (без~внешних зависимостей):
-
-\begin{lstlisting}[language=Python,basicstyle=\ttfamily\footnotesize,frame=single,caption={Класс \texttt{GradCAM} (training/gradcam\_viz.py)},label=lst:gradcam]
-class GradCAM:
-    """Grad-CAM на произвольном свёрточном слое."""
-
-    def __init__(self, model: nn.Module, target_layer: nn.Module):
-        self.model = model
-        self.activations: torch.Tensor | None = None
-        self.gradients: torch.Tensor | None = None
-        target_layer.register_forward_hook(self._save_activation)
-        target_layer.register_full_backward_hook(self._save_gradient)
-
-    def _save_activation(self, module, inp, out):
-        self.activations = out.detach()
-
-    def _save_gradient(self, module, grad_in, grad_out):
-        self.gradients = grad_out[0].detach()
-
-    def __call__(self, x: torch.Tensor, class_idx: int) -> np.ndarray:
-        self.model.zero_grad()
-        logits = self.model(x)
-        score = logits[0, class_idx]
-        score.backward()
-
-        # Глобальное среднее градиентов по пространственным осям
-        # даёт веса каналов.
-        weights = self.gradients.mean(dim=(2, 3), keepdim=True)
-        cam = (weights * self.activations).sum(dim=1, keepdim=True)
-        cam = F.relu(cam)
-        cam = F.interpolate(cam, size=x.shape[-2:],
-                            mode="bilinear", align_corners=False)
-        cam = cam.squeeze().cpu().numpy()
-        if cam.max() > 0:
-            cam = (cam - cam.min()) / (cam.max() - cam.min() + 1e-8)
-        return cam
 \end{lstlisting}
 
 \end{document}
