@@ -171,15 +171,15 @@ def slide_title(prs):
                 font_size=12, color=GREY, align=PP_ALIGN.CENTER)
 
     # Тема — крупно по центру
-    add_textbox(s, Inches(0.5), Inches(2.2), Inches(12.5), Inches(2.0),
-                "Автоматическая классификация фотографий",
-                font_size=34, bold=True, align=PP_ALIGN.CENTER)
-    add_textbox(s, Inches(0.5), Inches(2.85), Inches(12.5), Inches(0.7),
-                "по визуальному стилю",
-                font_size=34, bold=True, align=PP_ALIGN.CENTER)
-    add_textbox(s, Inches(0.5), Inches(3.5), Inches(12.5), Inches(0.7),
+    add_textbox(s, Inches(0.5), Inches(2.1), Inches(12.5), Inches(0.7),
+                "Разработка системы автоматической",
+                font_size=30, bold=True, align=PP_ALIGN.CENTER)
+    add_textbox(s, Inches(0.5), Inches(2.7), Inches(12.5), Inches(0.7),
+                "классификации фотографий по визуальному стилю",
+                font_size=30, bold=True, align=PP_ALIGN.CENTER)
+    add_textbox(s, Inches(0.5), Inches(3.3), Inches(12.5), Inches(0.7),
                 "на основе transfer learning",
-                font_size=34, bold=True, align=PP_ALIGN.CENTER)
+                font_size=30, bold=True, align=PP_ALIGN.CENTER)
 
     # Тип работы
     add_textbox(s, Inches(0.5), Inches(4.6), Inches(12.5), Inches(0.5),
